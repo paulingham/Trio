@@ -124,6 +124,19 @@ struct ComplicationModel {
         trendArrow.isEmpty ? displayedState.glucose : "\(displayedState.glucose)\(trendArrow)"
     }
 
+    var gaugeGlucoseText: String {
+        isStale ? ComplicationState.missingValue : displayedState.glucose
+    }
+
+    var cornerMainText: String {
+        switch kind {
+        case .iob: return displayedState.iob
+        case .gauge: return gaugeGlucoseText
+        case .chart,
+             .glucose: return glucoseWithArrow
+        }
+    }
+
     var ageText: String {
         if isPlaceholder { return "\(ComplicationState.missingValue) min" }
         return "\(displayedState.minutesAgo(at: referenceDate)) min"
@@ -177,7 +190,7 @@ private struct GlucoseRingGauge: View {
         Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
             Text("BG")
         } currentValueLabel: {
-            Text(model.displayedState.glucose)
+            Text(model.gaugeGlucoseText)
                 .font(.system(size: fontSize, weight: .bold))
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(model.glucoseColor)
@@ -257,7 +270,7 @@ struct ComplicationCornerMain: View {
     let model: ComplicationModel
 
     var body: some View {
-        Text(model.kind == .iob ? model.displayedState.iob : model.glucoseWithArrow)
+        Text(model.cornerMainText)
             .font(.system(size: 20, weight: .bold, design: .rounded))
             .minimumScaleFactor(0.6)
             .lineLimit(1)
@@ -274,7 +287,7 @@ struct ComplicationCornerLabel: View {
             Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
                 Text("BG")
             } currentValueLabel: {
-                Text(model.displayedState.glucose)
+                Text(model.gaugeGlucoseText)
             } minimumValueLabel: {
                 Text(model.displayedState.gaugeRange.lowerBound, format: .number.precision(.fractionLength(0)))
             } maximumValueLabel: {

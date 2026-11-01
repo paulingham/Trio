@@ -96,6 +96,25 @@ import Testing
         #expect(stale.dimColor == .gray)
     }
 
+    @Test("A stale gauge replaces the glucose with dashes") func staleGauge() {
+        let settings = ComplicationSlotSettings(staleMinutes: 10)
+        let state = ComplicationState.sample(units: "mg/dL", settings: settings, date: now)
+        let fresh = makeModel(.gauge, state, at: now.addingTimeInterval(10 * 60))
+        #expect(fresh.gaugeGlucoseText == "115")
+        #expect(fresh.cornerMainText == "115")
+        let stale = makeModel(.gauge, state, at: now.addingTimeInterval(10 * 60 + 1))
+        #expect(stale.gaugeGlucoseText == "--")
+        #expect(stale.cornerMainText == "--")
+    }
+
+    @Test("Only the gauge hides a stale glucose in the corner") func staleCornerByKind() {
+        var state = ComplicationState.sample(units: "mg/dL", date: now)
+        state.trend = "Unknown"
+        let staleDate = now.addingTimeInterval(TimeInterval(state.staleMinutes * 60 + 1))
+        #expect(makeModel(.glucose, state, at: staleDate).cornerMainText == "115")
+        #expect(makeModel(.iob, state, at: staleDate).cornerMainText == "--")
+    }
+
     @Test("Slot text follows the chosen value") func slotText() {
         var state = ComplicationState.sample(units: "mmol/L", date: now)
         state.trend = "FortyFiveUp"

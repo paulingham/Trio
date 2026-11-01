@@ -73,8 +73,7 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 // Skip if no watch is paired or app not installed
-                guard let session = self.session, session.isPaired, session.isReachable,
-                      session.isWatchAppInstalled else { return }
+                guard let session = self.session, session.isPaired, session.isWatchAppInstalled else { return }
                 Task {
                     let state = await self.setupWatchState()
                     await self.sendDataToWatch(state)
@@ -100,7 +99,7 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         coreDataPublisher?.filteredByEntityName("OrefDetermination").sink { [weak self] _ in
             guard let self = self else { return }
             // Skip if no watch is paired or app not installed
-            guard let session = self.session, session.isPaired, session.isReachable, session.isWatchAppInstalled else { return }
+            guard let session = self.session, session.isPaired, session.isWatchAppInstalled else { return }
             Task {
                 let state = await self.setupWatchState()
                 await self.sendDataToWatch(state)
