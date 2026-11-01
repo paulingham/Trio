@@ -613,6 +613,11 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             session.outstandingUserInfoTransfers
                 .filter { $0.userInfo[WatchMessageKeys.watchState] != nil && !$0.isCurrentComplicationInfo }
                 .forEach { $0.cancel() }
+            do {
+                try session.updateApplicationContext([WatchMessageKeys.watchState: message])
+            } catch {
+                debug(.watchManager, "❌ Error updating application context: \(error)")
+            }
             if shouldTransferForComplication(session, at: state.date) {
                 session.transferCurrentComplicationUserInfo([WatchMessageKeys.watchState: message])
                 lastComplicationTransferDate = state.date

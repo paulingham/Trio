@@ -100,9 +100,17 @@ import WidgetKit
 
     var deviceType = WatchSize.current
 
+    private(set) static weak var current: WatchState?
+
     override init() {
         super.init()
+        Self.current = self
         setupSession()
+    }
+
+    func ingestReceivedApplicationContext() {
+        guard let context = session?.receivedApplicationContext, !context.isEmpty else { return }
+        handleIncomingWatchStatePayload(context)
     }
 
     /// Configures the WatchConnectivity session if supported on the device
@@ -212,6 +220,10 @@ import WidgetKit
 
     func session(_: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {
         WatchLogger.shared.transferFinished(fileTransfer, error: error)
+    }
+
+    func session(_: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        handleIncomingWatchStatePayload(applicationContext)
     }
 
     /// Shared path for watch-state payloads from either delegate method.
