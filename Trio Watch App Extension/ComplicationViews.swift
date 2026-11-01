@@ -120,13 +120,15 @@ struct ComplicationModel {
 
     var trendArrow: String { isStale ? "" : displayedState.trendArrow }
 
-    var glucoseWithArrow: String {
-        trendArrow.isEmpty ? displayedState.glucose : "\(displayedState.glucose)\(trendArrow)"
-    }
-
-    var gaugeGlucoseText: String {
+    var glucoseText: String {
         isStale ? ComplicationState.missingValue : displayedState.glucose
     }
+
+    var glucoseWithArrow: String {
+        trendArrow.isEmpty ? glucoseText : "\(glucoseText)\(trendArrow)"
+    }
+
+    var gaugeGlucoseText: String { glucoseText }
 
     var cornerMainText: String {
         switch kind {
@@ -240,7 +242,7 @@ struct ComplicationCircularContent: View {
 
     private var glucose: some View {
         VStack(spacing: -2) {
-            Text(model.displayedState.glucose)
+            Text(model.glucoseText)
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             Text(model.secondaryText)
@@ -298,7 +300,7 @@ struct ComplicationCornerLabel: View {
             Text(
                 model.isStale || model.isLoopStale
                     ? model.statusLine
-                    : "COB \(model.cobText) · \(model.displayedState.glucose)"
+                    : "COB \(model.cobText) · \(model.glucoseText)"
             )
         case .chart,
              .glucose:
@@ -331,7 +333,7 @@ struct ComplicationRectangularContent: View {
 
     private var glucoseLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(model.displayedState.glucose)
+            Text(model.glucoseText)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             if !model.isStale {
@@ -443,7 +445,7 @@ struct ComplicationInlineContent: View {
              .gauge,
              .glucose:
             return model.isStale
-                ? "\(model.displayedState.glucose) · \(model.ageText) ago"
+                ? "\(model.glucoseText) · \(model.ageText) ago"
                 : "\(model.glucoseWithArrow) \(model.displayedState.delta) · IOB \(model.displayedState.iob)"
         }
     }

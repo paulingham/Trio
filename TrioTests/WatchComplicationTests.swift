@@ -107,11 +107,15 @@ import Testing
         #expect(stale.cornerMainText == "--")
     }
 
-    @Test("Only the gauge hides a stale glucose in the corner") func staleCornerByKind() {
+    @Test("Every kind hides a stale glucose") func staleGlucoseByKind() {
         var state = ComplicationState.sample(units: "mg/dL", date: now)
-        state.trend = "Unknown"
+        state.trend = "Flat"
+        let freshDate = now.addingTimeInterval(TimeInterval(state.staleMinutes * 60))
         let staleDate = now.addingTimeInterval(TimeInterval(state.staleMinutes * 60 + 1))
-        #expect(makeModel(.glucose, state, at: staleDate).cornerMainText == "115")
+        #expect(makeModel(.glucose, state, at: freshDate).glucoseWithArrow == "115→")
+        #expect(makeModel(.glucose, state, at: staleDate).glucoseWithArrow == "--")
+        #expect(makeModel(.glucose, state, at: staleDate).cornerMainText == "--")
+        #expect(makeModel(.chart, state, at: staleDate).glucoseText == "--")
         #expect(makeModel(.iob, state, at: staleDate).cornerMainText == "--")
     }
 
