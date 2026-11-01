@@ -42,7 +42,7 @@ import WatchKit
             userInfo: nil
         ) { error in
             if let error = error {
-                Task { await WatchLogger.shared.log("⌚️ Background refresh scheduling failed: \(error)") }
+                WatchLogger.shared.warning(.lifecycle, "Background refresh scheduling failed", error: error)
             }
         }
     }

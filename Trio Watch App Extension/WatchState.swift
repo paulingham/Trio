@@ -603,7 +603,7 @@ import WidgetKit
             lastSavedComplicationState = snapshot
             reloadInstalledComplications()
         } catch {
-            Task { await WatchLogger.shared.log("⌚️ Complication snapshot not saved: \(error)", force: true) }
+            WatchLogger.shared.warning(.data, "Complication snapshot not saved", error: error)
         }
     }
 
