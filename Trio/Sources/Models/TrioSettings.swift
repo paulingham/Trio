@@ -332,7 +332,7 @@ extension TrioSettings: Decodable {
         }
 
         if let value = try? container.decode(Int.self, forKey: .watchComplicationStaleMinutes) {
-            settings.watchComplicationStaleMinutes = value
+            settings.watchComplicationStaleMinutes = WatchComplicationDefaults.clampedStaleMinutes(value)
         }
 
         if let displayPresets = try? container.decode(Bool.self, forKey: .displayPresets) {

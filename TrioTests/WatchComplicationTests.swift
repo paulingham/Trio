@@ -25,6 +25,13 @@ import Testing
         #expect(settings.watchComplicationStaleMinutes == 30)
     }
 
+    @Test("Out-of-range stale minutes are clamped on decode") func staleMinutesClamped() throws {
+        #expect(try decodeSettings(#"{"watchComplicationStaleMinutes": 0}"#).watchComplicationStaleMinutes == 5)
+        #expect(try decodeSettings(#"{"watchComplicationStaleMinutes": 999}"#).watchComplicationStaleMinutes == 60)
+        #expect(WatchComplicationDefaults.clampedStaleMinutes(-3) == 5)
+        #expect(WatchComplicationDefaults.clampedStaleMinutes(30) == 30)
+    }
+
     @Test("Unknown raw values fall back") func unknownRawValueFallsBack() {
         #expect(WatchComplicationValue.from("bogus", default: .iob) == .iob)
         #expect(WatchComplicationValue.from(nil, default: .delta) == .delta)

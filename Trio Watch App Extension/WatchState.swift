@@ -526,7 +526,7 @@ import WidgetKit
         }
 
         if let minutes = (message[WatchMessageKeys.complicationStaleMinutes] as? NSNumber)?.intValue {
-            complicationStaleMinutes = minutes
+            complicationStaleMinutes = WatchComplicationDefaults.clampedStaleMinutes(minutes)
         }
 
         if let units = message[WatchMessageKeys.units] as? String {
@@ -556,10 +556,13 @@ import WidgetKit
 
         // Persist a compact snapshot for the watch face complications and ask WidgetKit to redraw.
         // Runs for both delivery paths (foreground message and background userInfo) because
-        // both end up here after the debounce.
-        let stateDate = lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) } ?? Date()
-        ComplicationStore.save(ComplicationState(
-            date: stateDate,
+        // both end up here after the debounce. The snapshot is dated by the latest reading, not
+        // by when the phone sent it, so Grey Out After tracks the CGM rather than the link.
+        let readingDate = glucoseValues.last?.date
+            ?? lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) }
+            ?? Date()
+        let changed = ComplicationStore.save(ComplicationState(
+            date: readingDate,
             glucose: currentGlucose,
             glucoseColorHex: currentGlucoseColorString,
             trend: trend ?? "",
@@ -572,9 +575,13 @@ import WidgetKit
             staleMinutes: complicationStaleMinutes,
             units: glucoseUnits.isEmpty ? nil : glucoseUnits,
             glucoseValue: glucoseValues.last?.glucose,
-            history: complicationHistory(until: stateDate)
+            history: complicationHistory(until: readingDate)
         ))
-        WidgetCenter.shared.reloadAllTimelines()
+        if changed {
+            for kind in ComplicationKind.allCases {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
+            }
+        }
     }
 
     /// Readings inside the chart window, thinned to at most 40 points to keep the

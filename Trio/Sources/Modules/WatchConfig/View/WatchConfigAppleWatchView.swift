@@ -82,11 +82,7 @@ struct WatchConfigAppleWatchView: BaseView {
             Section(
                 header: Text("Complication Settings"),
                 footer: Text(
-                    "Grey Out After applies to every complication: older readings are greyed and show their age."
-                        + " Corner Label is the curved text on Trio Glucose corner slots."
-                        + " Small Line is the text under the glucose on Trio Glucose circular slots,"
-                        + " beside the ring on Trio Gauge rectangular slots, and the second line of Trio Chart."
-                        + " Trio IOB has a fixed layout."
+                    "Grey Out After applies to every complication: older readings are greyed and show their age. Corner Label is the curved text on Trio Glucose corner slots. Small Line is the text under the glucose on Trio Glucose circular slots, beside the ring on Trio Gauge rectangular slots, and the second line of Trio Chart. Trio IOB has a fixed layout."
                 ),
                 content: {
                     Picker("Corner Label", selection: $state.complicationCornerValue) {
@@ -116,8 +112,7 @@ struct WatchConfigAppleWatchView: BaseView {
             Section(
                 header: Text("Available Complications"),
                 footer: Text(
-                    "Previews use sample data in your units and follow the settings above."
-                        + " Add them from the watch face editor under Trio. Corner slots curve the label round the face."
+                    "Previews use sample data in your units and follow the settings above. Add them from the watch face editor under Trio. Corner slots curve the label round the face."
                 ),
                 content: {
                     ForEach(ComplicationKind.allCases) { kind in

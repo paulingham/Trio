@@ -172,12 +172,11 @@ enum ComplicationStore {
 
     /// The App Group identifier shared by the watch app and the complication extension.
     ///
-    /// The watch targets use Xcode-generated Info.plists, so unlike the iOS app there is no
-    /// `AppGroupID` key to read. The group is derived from the bundle identifier instead:
-    /// `org.nightscout.<TEAM>.trio.watchkitapp[.TrioWatchComplication]`
-    /// → `group.org.nightscout.<TEAM>.trio.trio-app-group`, which is exactly
-    /// `TRIO_APP_GROUP_ID` from `Config.xcconfig`. An `AppGroupID` Info.plist key, if present,
-    /// takes precedence.
+    /// Both watch targets set `INFOPLIST_KEY_AppGroupID = $(APP_GROUP_ID)`, which is
+    /// `TRIO_APP_GROUP_ID` from `Config.xcconfig` and matches their entitlements, so the
+    /// Info.plist key is the source of truth. The bundle-identifier derivation below is only
+    /// a fallback for a project file that lost that build setting and assumes the default
+    /// `org.nightscout.<TEAM>.trio` bundle identifier.
     static var appGroupID: String? {
         if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String,
            !fromPlist.isEmpty, !fromPlist.hasPrefix("$(")
@@ -196,11 +195,17 @@ enum ComplicationStore {
         return UserDefaults(suiteName: id)
     }
 
-    static func save(_ state: ComplicationState) {
+    /// Writes the snapshot. Returns false when nothing changed, so callers can skip a
+    /// WidgetKit reload and keep inside its refresh budget.
+    @discardableResult static func save(_ state: ComplicationState) -> Bool {
         guard let defaults = defaults,
               let data = try? JSONEncoder().encode(state)
-        else { return }
+        else { return false }
+        if let existing = defaults.data(forKey: key), existing == data {
+            return false
+        }
         defaults.set(data, forKey: key)
+        return true
     }
 
     static func load() -> ComplicationState? {

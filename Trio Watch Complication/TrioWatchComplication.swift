@@ -7,17 +7,8 @@ import WidgetKit
 struct TrioGlucoseEntry: TimelineEntry {
     let date: Date
     let state: ComplicationState
-    /// True when `state` is older than `ComplicationState.staleAfter` at `date`.
-    let isStale: Bool
-    /// True for the placeholder / preview entry.
+    /// True for the placeholder / preview entry and before the first snapshot exists.
     let isPlaceholder: Bool
-
-    init(date: Date, state: ComplicationState, isPlaceholder: Bool = false) {
-        self.date = date
-        self.state = state
-        self.isPlaceholder = isPlaceholder
-        isStale = !isPlaceholder && state.isStale(at: date)
-    }
 }
 
 struct TrioGlucoseProvider: TimelineProvider {
@@ -30,24 +21,34 @@ struct TrioGlucoseProvider: TimelineProvider {
             completion(TrioGlucoseEntry(date: Date(), state: Self.preview, isPlaceholder: true))
             return
         }
-        completion(TrioGlucoseEntry(date: Date(), state: ComplicationStore.load() ?? .placeholder))
+        completion(Self.currentEntry(at: Date()))
     }
 
     /// One entry for now and, if the reading is still fresh, a second entry at the moment it
-    /// turns stale so the face greys it out without the app having to wake up. `.atEnd` makes
-    /// WidgetKit ask again after that; the watch app also calls `reloadAllTimelines()` every time
-    /// new data arrives from the phone, which is the normal refresh path.
+    /// turns stale so the face greys it out without the app having to wake up. `.atEnd` then
+    /// asks WidgetKit for a fresh timeline; once the reading is already stale there is nothing
+    /// to schedule, so `.never` leaves it to the watch app, which reloads the timelines when
+    /// new data arrives from the phone.
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioGlucoseEntry>) -> Void) {
         let now = Date()
-        let state = ComplicationStore.load() ?? .placeholder
-        var entries = [TrioGlucoseEntry(date: now, state: state)]
+        let current = Self.currentEntry(at: now)
+        var entries = [current]
 
-        let staleAt = state.date.addingTimeInterval(state.staleAfter + 1)
-        if staleAt > now {
-            entries.append(TrioGlucoseEntry(date: staleAt, state: state))
+        let staleAt = current.state.date.addingTimeInterval(current.state.staleAfter + 1)
+        if !current.isPlaceholder, staleAt > now {
+            entries.append(TrioGlucoseEntry(date: staleAt, state: current.state, isPlaceholder: false))
+            completion(Timeline(entries: entries, policy: .atEnd))
+        } else {
+            completion(Timeline(entries: entries, policy: .never))
         }
+    }
 
-        completion(Timeline(entries: entries, policy: .atEnd))
+    /// The stored snapshot, or a placeholder entry before the watch app has written one.
+    private static func currentEntry(at date: Date) -> TrioGlucoseEntry {
+        if let state = ComplicationStore.load() {
+            return TrioGlucoseEntry(date: date, state: state, isPlaceholder: false)
+        }
+        return TrioGlucoseEntry(date: date, state: .placeholder, isPlaceholder: true)
     }
 
     /// Sample shown in the watch face gallery. Units follow the last real snapshot when there is one.
@@ -123,56 +124,32 @@ private func families(for kind: ComplicationKind) -> [WidgetFamily] {
     }
 }
 
-struct TrioGlucoseComplication: Widget {
-    private let kind = ComplicationKind.glucose
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
-            TrioComplicationEntryView(kind: kind, entry: entry)
-        }
-        .configurationDisplayName(kind.displayName)
-        .description(kind.summary)
-        .supportedFamilies(families(for: kind))
+/// Configuration shared by the four data-driven complications; only `kind` differs.
+private func complicationConfiguration(for kind: ComplicationKind) -> some WidgetConfiguration {
+    StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
+        TrioComplicationEntryView(kind: kind, entry: entry)
     }
+    .configurationDisplayName(kind.displayName)
+    .description(kind.summary)
+    .supportedFamilies(families(for: kind))
+}
+
+// `Widget` needs an argument-less `init`, so each kind is its own small struct.
+
+struct TrioGlucoseComplication: Widget {
+    var body: some WidgetConfiguration { complicationConfiguration(for: .glucose) }
 }
 
 struct TrioGaugeComplication: Widget {
-    private let kind = ComplicationKind.gauge
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
-            TrioComplicationEntryView(kind: kind, entry: entry)
-        }
-        .configurationDisplayName(kind.displayName)
-        .description(kind.summary)
-        .supportedFamilies(families(for: kind))
-    }
+    var body: some WidgetConfiguration { complicationConfiguration(for: .gauge) }
 }
 
 struct TrioIobComplication: Widget {
-    private let kind = ComplicationKind.iob
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
-            TrioComplicationEntryView(kind: kind, entry: entry)
-        }
-        .configurationDisplayName(kind.displayName)
-        .description(kind.summary)
-        .supportedFamilies(families(for: kind))
-    }
+    var body: some WidgetConfiguration { complicationConfiguration(for: .iob) }
 }
 
 struct TrioChartComplication: Widget {
-    private let kind = ComplicationKind.chart
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
-            TrioComplicationEntryView(kind: kind, entry: entry)
-        }
-        .configurationDisplayName(kind.displayName)
-        .description(kind.summary)
-        .supportedFamilies(families(for: kind))
-    }
+    var body: some WidgetConfiguration { complicationConfiguration(for: .chart) }
 }
 
 // MARK: - App icon launcher (unchanged behaviour)

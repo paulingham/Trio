@@ -38,4 +38,9 @@ enum WatchComplicationDefaults {
     static let secondaryValue: WatchComplicationValue = .delta
     static let staleMinutes = 15
     static let staleMinutesRange = 5 ... 60
+
+    /// Keeps a stored or received value inside the range the Stepper can show.
+    static func clampedStaleMinutes(_ minutes: Int) -> Int {
+        min(max(minutes, staleMinutesRange.lowerBound), staleMinutesRange.upperBound)
+    }
 }
