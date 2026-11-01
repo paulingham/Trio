@@ -82,7 +82,8 @@ struct WatchConfigAppleWatchView: BaseView {
             Section(
                 header: Text("Complication"),
                 footer: Text(
-                    "The Trio Glucose complication always shows glucose and trend. Corner Label is the curved text on corner slots; Small Line is the text under the glucose on circular slots. Readings older than the grey-out time are shown greyed with their age."
+                    "Corner Label is the curved text on corner slots. Small Line is the text under the glucose on circular slots."
+                        + " Readings older than the grey-out time are shown greyed with their age."
                 ),
                 content: {
                     Picker("Corner Label", selection: $state.complicationCornerValue) {
@@ -112,7 +113,8 @@ struct WatchConfigAppleWatchView: BaseView {
             Section(
                 header: Text("Available Complications"),
                 footer: Text(
-                    "Previews use sample data in your units and follow the settings above. Add them from the watch face editor under Trio. Corner slots curve the label round the edge of the face."
+                    "Previews use sample data in your units and follow the settings above."
+                        + " Add them from the watch face editor under Trio. Corner slots curve the label round the face."
                 ),
                 content: {
                     ForEach(ComplicationKind.allCases) { kind in

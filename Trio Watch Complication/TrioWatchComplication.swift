@@ -131,7 +131,7 @@ struct TrioGlucoseComplication: Widget {
             TrioComplicationEntryView(kind: kind, entry: entry)
         }
         .configurationDisplayName(kind.displayName)
-        .description("Current glucose and trend, with IOB, COB, delta or loop age")
+        .description(kind.summary)
         .supportedFamilies(families(for: kind))
     }
 }
@@ -144,7 +144,7 @@ struct TrioGaugeComplication: Widget {
             TrioComplicationEntryView(kind: kind, entry: entry)
         }
         .configurationDisplayName(kind.displayName)
-        .description("Glucose on a low-to-high ring")
+        .description(kind.summary)
         .supportedFamilies(families(for: kind))
     }
 }
@@ -157,7 +157,7 @@ struct TrioIobComplication: Widget {
             TrioComplicationEntryView(kind: kind, entry: entry)
         }
         .configurationDisplayName(kind.displayName)
-        .description("Insulin on board, COB and glucose")
+        .description(kind.summary)
         .supportedFamilies(families(for: kind))
     }
 }
@@ -170,7 +170,7 @@ struct TrioChartComplication: Widget {
             TrioComplicationEntryView(kind: kind, entry: entry)
         }
         .configurationDisplayName(kind.displayName)
-        .description("Glucose with the last three hours as a chart")
+        .description(kind.summary)
         .supportedFamilies(families(for: kind))
     }
 }

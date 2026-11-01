@@ -23,21 +23,39 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Name shown in the watch face editor and on the iOS settings page.
     var displayName: String {
         switch self {
-        case .glucose: return "Trio Glucose"
-        case .gauge: return "Trio Gauge"
-        case .iob: return "Trio IOB"
-        case .chart: return "Trio Chart"
+        case .glucose: return String(localized: "Trio Glucose", comment: "Name of the glucose watch complication")
+        case .gauge: return String(localized: "Trio Gauge", comment: "Name of the glucose ring watch complication")
+        case .iob: return String(localized: "Trio IOB", comment: "Name of the insulin on board watch complication")
+        case .chart: return String(localized: "Trio Chart", comment: "Name of the glucose chart watch complication")
         }
     }
 
+    /// One-line description shown in the watch face editor and under the preview on the iOS settings page.
     var summary: String {
         switch self {
-        case .glucose: return "Glucose and trend. Small Line under it on circular slots, Corner Label on corner slots."
-        case .gauge: return "Glucose inside a ring that fills from low to high. Corner slots curve the ring round the glucose."
-        case .iob: return "Insulin on board first, with COB and glucose alongside."
-        case .chart: return "Glucose, delta and IOB next to the last three hours of readings. Rectangular slots only."
+        case .glucose:
+            return String(
+                localized: "Glucose and trend, with the Small Line under it on circular slots and the Corner Label on corners.",
+                comment: "Description of the glucose watch complication"
+            )
+        case .gauge:
+            return String(
+                localized: "Glucose inside a ring that fills from low to high.",
+                comment: "Description of the glucose ring watch complication"
+            )
+        case .iob:
+            return String(
+                localized: "Insulin on board first, with COB and glucose alongside.",
+                comment: "Description of the insulin on board watch complication"
+            )
+        case .chart:
+            return String(
+                localized: "Glucose, delta and IOB next to the last three hours of readings. Rectangular slots only.",
+                comment: "Description of the glucose chart watch complication"
+            )
         }
     }
 
@@ -145,7 +163,7 @@ struct ComplicationCircularContent: View {
 
     var body: some View {
         switch model.kind {
-        case .glucose, .chart:
+        case .chart, .glucose:
             glucose
         case .gauge:
             gauge
