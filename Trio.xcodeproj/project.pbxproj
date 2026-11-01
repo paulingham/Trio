@@ -882,6 +882,10 @@
 		DD09D6442D2B553A000D82C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD09D6412D2B553A000D82C9 /* Assets.xcassets */; };
 		C0DE0001A5C0000000000004 /* ComplicationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C0000000000001 /* ComplicationState.swift */; };
 		C0DE0001A5C0000000000005 /* ComplicationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C0000000000001 /* ComplicationState.swift */; };
+		C0DE0001A5C000000000000B /* ComplicationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C000000000000A /* ComplicationViews.swift */; };
+		C0DE0001A5C000000000000C /* ComplicationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C000000000000A /* ComplicationViews.swift */; };
+		C0DE0001A5C000000000000D /* ComplicationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C000000000000A /* ComplicationViews.swift */; };
+		C0DE0001A5C000000000000E /* ComplicationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE0001A5C0000000000001 /* ComplicationState.swift */; };
 		DD09D6462D2B553A000D82C9 /* TrioWatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD09D6432D2B553A000D82C9 /* TrioWatchComplication.swift */; };
 		DD1745132C54169400211FAC /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1745122C54169400211FAC /* DevicesView.swift */; };
 		DD1745152C54388A00211FAC /* TherapySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1745142C54388A00211FAC /* TherapySettingsView.swift */; };
@@ -2117,6 +2121,7 @@
 		DD09D6412D2B553A000D82C9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DD09D6422D2B553A000D82C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C0DE0001A5C0000000000001 /* ComplicationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComplicationState.swift; sourceTree = "<group>"; };
+		C0DE0001A5C000000000000A /* ComplicationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComplicationViews.swift; sourceTree = "<group>"; };
 		C0DE0001A5C0000000000002 /* TrioWatchApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TrioWatchApp.entitlements; sourceTree = "<group>"; };
 		C0DE0001A5C0000000000003 /* TrioWatchComplication.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TrioWatchComplication.entitlements; sourceTree = "<group>"; };
 		DD09D6432D2B553A000D82C9 /* TrioWatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrioWatchComplication.swift; sourceTree = "<group>"; };
@@ -4420,6 +4425,7 @@
 			isa = PBXGroup;
 			children = (
 				C0DE0001A5C0000000000001 /* ComplicationState.swift */,
+				C0DE0001A5C000000000000A /* ComplicationViews.swift */,
 				C0DE0001A5C0000000000002 /* TrioWatchApp.entitlements */,
 				DDFF204D2DB2C00B00AB8A96 /* WatchStateSnapshot.swift */,
 				DDFF20492DB29EF500AB8A96 /* WatchLogger.swift */,
@@ -5984,6 +5990,8 @@
 				582DF9752C8CDB92001F516D /* GlucoseChartView.swift in Sources */,
 				BD432CA12D2F4E3600D1EB79 /* WatchMessageKeys.swift in Sources */,
 				C0DE0001A5C0000000000007 /* WatchComplicationValue.swift in Sources */,
+				C0DE0001A5C000000000000D /* ComplicationViews.swift in Sources */,
+				C0DE0001A5C000000000000E /* ComplicationState.swift in Sources */,
 				DD4C581F2D73C43D001BFF2C /* LoopStatsView.swift in Sources */,
 				58A3D53A2C96D4DE003F90FC /* AddTempTargetForm.swift in Sources */,
 				C21FE1E72DA59C6B007D550B /* GlucoseDailyDistributionChart.swift in Sources */,
@@ -6669,6 +6677,7 @@
 			files = (
 				DD09D6462D2B553A000D82C9 /* TrioWatchComplication.swift in Sources */,
 				C0DE0001A5C0000000000005 /* ComplicationState.swift in Sources */,
+				C0DE0001A5C000000000000C /* ComplicationViews.swift in Sources */,
 				C0DE0001A5C0000000000009 /* WatchComplicationValue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -6690,6 +6699,7 @@
 				BDA25F1E2D26D5DD00035F34 /* GlucoseChartView.swift in Sources */,
 				DDFF204E2DB2C00B00AB8A96 /* WatchStateSnapshot.swift in Sources */,
 				C0DE0001A5C0000000000004 /* ComplicationState.swift in Sources */,
+				C0DE0001A5C000000000000B /* ComplicationViews.swift in Sources */,
 				DD6F63CC2D27F615007D94CF /* TreatmentMenuView.swift in Sources */,
 				DD3A3CE72D29C93F00AE478E /* Helper+Extensions.swift in Sources */,
 				DD246F062D2836AA0027DDE0 /* GlucoseTrendView.swift in Sources */,

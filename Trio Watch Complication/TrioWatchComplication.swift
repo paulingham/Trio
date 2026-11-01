@@ -1,9 +1,9 @@
 import SwiftUI
 import WidgetKit
 
-// MARK: - Glucose complication
+// MARK: - Data-driven complications
 
-/// Timeline entry for the data-driven complication.
+/// Timeline entry shared by every data-driven complication.
 struct TrioGlucoseEntry: TimelineEntry {
     let date: Date
     let state: ComplicationState
@@ -50,161 +50,128 @@ struct TrioGlucoseProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: .atEnd))
     }
 
-    static let preview = ComplicationState(
-        date: Date(),
-        glucose: "6.4",
-        glucoseColorHex: "#4cd964",
-        trend: "Flat",
-        delta: "+0.1",
-        iob: "1.25",
-        cob: "12",
-        lastLoopTime: "2 min",
-        cornerValue: WatchComplicationDefaults.cornerValue,
-        secondaryValue: WatchComplicationDefaults.secondaryValue,
-        staleMinutes: WatchComplicationDefaults.staleMinutes
-    )
+    /// Sample shown in the watch face gallery. Units follow the last real snapshot when there is one.
+    static var preview: ComplicationState {
+        let units = ComplicationStore.load()?.units ?? "mg/dL"
+        return ComplicationState.sample(units: units)
+    }
 }
 
-struct TrioGlucoseEntryView: View {
+/// Applies the WidgetKit-only modifiers round the shared content views.
+struct TrioComplicationEntryView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
 
+    let kind: ComplicationKind
     let entry: TrioGlucoseEntry
 
-    private var state: ComplicationState { entry.state }
-
-    /// Full-colour faces get the phone's glucose colour; accented/vibrant faces are tinted by watchOS.
-    private var glucoseColor: Color {
-        if entry.isStale { return .gray }
-        return renderingMode == .fullColor ? state.glucoseColor : .primary
-    }
-
-    private var glucoseWithArrow: String {
-        let arrow = entry.isStale ? "" : state.trendArrow
-        return arrow.isEmpty ? state.glucose : "\(state.glucose)\(arrow)"
-    }
-
-    private var ageText: String {
-        if entry.isPlaceholder { return "-- min" }
-        return "\(state.minutesAgo(at: entry.date)) min"
+    private var model: ComplicationModel {
+        ComplicationModel(
+            kind: kind,
+            state: entry.state,
+            referenceDate: entry.date,
+            isPlaceholder: entry.isPlaceholder,
+            fullColor: renderingMode == .fullColor
+        )
     }
 
     var body: some View {
         switch family {
-        case .accessoryCircular:
-            circular
         case .accessoryRectangular:
-            rectangular
+            ComplicationRectangularContent(model: model)
+                .widgetAccentable()
+                .widgetBackground(backgroundView: Color.clear)
         case .accessoryInline:
-            inline
+            ComplicationInlineContent(model: model)
+                .widgetBackground(backgroundView: Color.clear)
         #if os(watchOS)
             case .accessoryCorner:
-                corner
+                ComplicationCornerMain(model: model)
+                    .widgetAccentable()
+                    .widgetCurvesContent()
+                    .widgetLabel {
+                        ComplicationCornerLabel(model: model)
+                    }
+                    .widgetBackground(backgroundView: Color.clear)
         #endif
         default:
-            circular
-        }
-    }
-
-    // Glucose large, arrow and delta small underneath.
-    private var circular: some View {
-        ZStack {
-            AccessoryWidgetBackground()
-            VStack(spacing: -2) {
-                Text(state.glucose)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                    .foregroundStyle(glucoseColor)
-                    .widgetAccentable()
-                Text(entry.isStale ? ageText : state.text(for: state.resolvedSecondaryValue, labelled: false))
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                    .foregroundStyle(entry.isStale ? .gray : .secondary)
-            }
-            .padding(.horizontal, 2)
-        }
-        .widgetBackground(backgroundView: Color.clear)
-    }
-
-    #if os(watchOS)
-        // Glucose + arrow in the corner, IOB on the curved label.
-        private var corner: some View {
-            Text(glucoseWithArrow)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .foregroundStyle(glucoseColor)
-                .widgetAccentable()
-                .widgetCurvesContent()
-                .widgetLabel {
-                    Text(entry.isStale ? ageText : state.text(for: state.resolvedCornerValue, labelled: true))
+            ZStack {
+                if kind != .gauge {
+                    AccessoryWidgetBackground()
                 }
-                .widgetBackground(backgroundView: Color.clear)
-        }
-    #endif
-
-    // Three lines: glucose/arrow/delta, IOB + COB, age + loop.
-    private var rectangular: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(state.glucose)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(glucoseColor)
+                ComplicationCircularContent(model: model)
                     .widgetAccentable()
-                if !entry.isStale {
-                    Text(state.trendArrow)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(glucoseColor)
-                    Text(state.delta)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
             }
-            .minimumScaleFactor(0.7)
-            .lineLimit(1)
-            Text("IOB \(state.iob) U · COB \(state.cob) g")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(entry.isStale ? .gray : .primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text("\(ageText) ago · loop \(state.lastLoopTime)")
-                .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .widgetBackground(backgroundView: Color.clear)
-    }
-
-    private var inline: some View {
-        Text(entry.isStale
-            ? "\(state.glucose) · \(ageText) ago"
-            : "\(glucoseWithArrow) \(state.delta) · IOB \(state.iob)")
             .widgetBackground(backgroundView: Color.clear)
+        }
+    }
+}
+
+private func families(for kind: ComplicationKind) -> [WidgetFamily] {
+    kind.slots.compactMap { slot -> WidgetFamily? in
+        switch slot {
+        case .circular: return .accessoryCircular
+        case .rectangular: return .accessoryRectangular
+        case .inline: return .accessoryInline
+        case .corner:
+            #if os(watchOS)
+                return .accessoryCorner
+            #else
+                return nil
+            #endif
+        }
     }
 }
 
 struct TrioGlucoseComplication: Widget {
-    let kind: String = "TrioGlucoseComplication"
+    private let kind = ComplicationKind.glucose
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: TrioGlucoseProvider()) { entry in
-            TrioGlucoseEntryView(entry: entry)
+        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
+            TrioComplicationEntryView(kind: kind, entry: entry)
         }
-        .configurationDisplayName("Trio Glucose")
-        .description("Current glucose, trend, IOB and COB from Trio")
-        .supportedFamilies(supportedFamilies)
+        .configurationDisplayName(kind.displayName)
+        .description("Current glucose and trend, with IOB, COB, delta or loop age")
+        .supportedFamilies(families(for: kind))
     }
+}
 
-    private var supportedFamilies: [WidgetFamily] {
-        #if os(watchOS)
-            return [.accessoryCorner, .accessoryCircular, .accessoryRectangular, .accessoryInline]
-        #else
-            return [.accessoryCircular, .accessoryRectangular, .accessoryInline]
-        #endif
+struct TrioGaugeComplication: Widget {
+    private let kind = ComplicationKind.gauge
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
+            TrioComplicationEntryView(kind: kind, entry: entry)
+        }
+        .configurationDisplayName(kind.displayName)
+        .description("Glucose on a low-to-high ring")
+        .supportedFamilies(families(for: kind))
+    }
+}
+
+struct TrioIobComplication: Widget {
+    private let kind = ComplicationKind.iob
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
+            TrioComplicationEntryView(kind: kind, entry: entry)
+        }
+        .configurationDisplayName(kind.displayName)
+        .description("Insulin on board, COB and glucose")
+        .supportedFamilies(families(for: kind))
+    }
+}
+
+struct TrioChartComplication: Widget {
+    private let kind = ComplicationKind.chart
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
+            TrioComplicationEntryView(kind: kind, entry: entry)
+        }
+        .configurationDisplayName(kind.displayName)
+        .description("Glucose with the last three hours as a chart")
+        .supportedFamilies(families(for: kind))
     }
 }
 
@@ -303,6 +270,9 @@ struct TrioWatchComplication: Widget {
 @main struct TrioWatchComplicationBundle: WidgetBundle {
     var body: some Widget {
         TrioGlucoseComplication()
+        TrioGaugeComplication()
+        TrioIobComplication()
+        TrioChartComplication()
         TrioWatchComplication()
     }
 }

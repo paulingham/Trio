@@ -52,6 +52,8 @@ import WidgetKit
     var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
     var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
+    /// "mg/dL" or "mmol/L" as sent by the phone. Empty until the first payload.
+    var glucoseUnits: String = ""
 
     // Forecast options
     var showForecast: Bool = false
@@ -527,6 +529,10 @@ import WidgetKit
             complicationStaleMinutes = minutes
         }
 
+        if let units = message[WatchMessageKeys.units] as? String {
+            glucoseUnits = units
+        }
+
         if let showForecast = message[WatchMessageKeys.showForecastWatch] as? Bool {
             self.showForecast = showForecast
         }
@@ -563,8 +569,22 @@ import WidgetKit
             lastLoopTime: lastLoopTime ?? "--",
             cornerValue: complicationCornerValue,
             secondaryValue: complicationSecondaryValue,
-            staleMinutes: complicationStaleMinutes
+            staleMinutes: complicationStaleMinutes,
+            units: glucoseUnits.isEmpty ? nil : glucoseUnits,
+            glucoseValue: glucoseValues.last?.glucose,
+            history: complicationHistory(until: stateDate)
         ))
-        WidgetCenter.shared.reloadTimelines(ofKind: "TrioGlucoseComplication")
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Readings inside the chart window, thinned to at most 40 points to keep the
+    /// App Group snapshot small. Values are already in the user's units.
+    private func complicationHistory(until end: Date) -> [ComplicationPoint] {
+        let from = end.addingTimeInterval(-ComplicationState.chartWindow)
+        let recent = glucoseValues.filter { $0.date >= from }
+        let step = max(1, Int((Double(recent.count) / 40.0).rounded(.up)))
+        return recent.enumerated()
+            .filter { $0.offset % step == 0 || $0.offset == recent.count - 1 }
+            .map { ComplicationPoint(t: $0.element.date.timeIntervalSince1970, v: $0.element.glucose) }
     }
 }

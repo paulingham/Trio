@@ -20,6 +20,21 @@ struct WatchConfigAppleWatchView: BaseView {
         state.deleteGarminDevice()
     }
 
+    /// Sample data for the complication previews, in the user's units, following the pickers.
+    private var previewState: ComplicationState {
+        ComplicationState.sample(
+            units: state.units.rawValue,
+            cornerValue: state.complicationCornerValue,
+            secondaryValue: state.complicationSecondaryValue,
+            staleMinutes: state.complicationStaleMinutes
+        )
+    }
+
+    /// Slots shown in the previews; inline is a single line of text so it is left out.
+    private func previewSlots(for kind: ComplicationKind) -> [ComplicationSlot] {
+        kind.slots.filter { $0 != .inline }
+    }
+
     var body: some View {
         List {
             SettingInputSection(
@@ -90,6 +105,32 @@ struct WatchConfigAppleWatchView: BaseView {
                             Spacer()
                             Text("\(state.complicationStaleMinutes) min").foregroundStyle(.secondary)
                         }
+                    }
+                }
+            ).listRowBackground(Color.chart)
+
+            Section(
+                header: Text("Available Complications"),
+                footer: Text(
+                    "Previews use sample data in your units and follow the settings above. Add them from the watch face editor under Trio. Corner slots curve the label round the edge of the face."
+                ),
+                content: {
+                    ForEach(ComplicationKind.allCases) { kind in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(kind.displayName).font(.headline)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    ForEach(previewSlots(for: kind), id: \.self) { slot in
+                                        ComplicationPreview(kind: kind, slot: slot, state: previewState)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            Text(kind.summary)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
             ).listRowBackground(Color.chart)
