@@ -26,6 +26,12 @@ struct ComplicationState: Codable, Equatable {
     /// Last loop age as sent by the phone, e.g. "3 min" or "--".
     var lastLoopTime: String
 
+    // Configuration chosen on the phone (Settings → Smart Watch → Apple Watch → Complication).
+    // Optional so a snapshot written by an older build still decodes.
+    var cornerValue: WatchComplicationValue?
+    var secondaryValue: WatchComplicationValue?
+    var staleMinutes: Int?
+
     static let placeholder = ComplicationState(
         date: .distantPast,
         glucose: "--",
@@ -37,8 +43,13 @@ struct ComplicationState: Codable, Equatable {
         lastLoopTime: "--"
     )
 
+    var resolvedCornerValue: WatchComplicationValue { cornerValue ?? WatchComplicationDefaults.cornerValue }
+    var resolvedSecondaryValue: WatchComplicationValue { secondaryValue ?? WatchComplicationDefaults.secondaryValue }
+
     /// Readings older than this are shown greyed out with their age.
-    static let staleAfter: TimeInterval = 15 * 60
+    var staleAfter: TimeInterval {
+        TimeInterval(staleMinutes ?? WatchComplicationDefaults.staleMinutes) * 60
+    }
 
     var trendArrow: String {
         switch trend {
@@ -54,7 +65,18 @@ struct ComplicationState: Codable, Equatable {
     }
 
     func isStale(at reference: Date = Date()) -> Bool {
-        reference.timeIntervalSince(date) > Self.staleAfter
+        reference.timeIntervalSince(date) > staleAfter
+    }
+
+    /// Text for a configurable slot. Empty when the slot is set to nothing or the value is unknown.
+    func text(for value: WatchComplicationValue, labelled: Bool) -> String {
+        switch value {
+        case .nothing: return ""
+        case .iob: return labelled ? "IOB \(iob)" : iob
+        case .cob: return labelled ? "COB \(cob)" : cob
+        case .delta: return "\(trendArrow) \(delta)".trimmingCharacters(in: .whitespaces)
+        case .loopAge: return labelled ? "Loop \(lastLoopTime)" : lastLoopTime
+        }
     }
 
     func minutesAgo(at reference: Date = Date()) -> Int {

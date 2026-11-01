@@ -42,7 +42,7 @@ struct TrioGlucoseProvider: TimelineProvider {
         let state = ComplicationStore.load() ?? .placeholder
         var entries = [TrioGlucoseEntry(date: now, state: state)]
 
-        let staleAt = state.date.addingTimeInterval(ComplicationState.staleAfter + 1)
+        let staleAt = state.date.addingTimeInterval(state.staleAfter + 1)
         if staleAt > now {
             entries.append(TrioGlucoseEntry(date: staleAt, state: state))
         }
@@ -58,7 +58,10 @@ struct TrioGlucoseProvider: TimelineProvider {
         delta: "+0.1",
         iob: "1.25",
         cob: "12",
-        lastLoopTime: "2 min"
+        lastLoopTime: "2 min",
+        cornerValue: WatchComplicationDefaults.cornerValue,
+        secondaryValue: WatchComplicationDefaults.secondaryValue,
+        staleMinutes: WatchComplicationDefaults.staleMinutes
     )
 }
 
@@ -114,7 +117,7 @@ struct TrioGlucoseEntryView: View {
                     .lineLimit(1)
                     .foregroundStyle(glucoseColor)
                     .widgetAccentable()
-                Text(entry.isStale ? ageText : "\(state.trendArrow) \(state.delta)")
+                Text(entry.isStale ? ageText : state.text(for: state.resolvedSecondaryValue, labelled: false))
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
@@ -136,7 +139,7 @@ struct TrioGlucoseEntryView: View {
                 .widgetAccentable()
                 .widgetCurvesContent()
                 .widgetLabel {
-                    Text(entry.isStale ? ageText : "IOB \(state.iob)")
+                    Text(entry.isStale ? ageText : state.text(for: state.resolvedCornerValue, labelled: true))
                 }
                 .widgetBackground(backgroundView: Color.clear)
         }

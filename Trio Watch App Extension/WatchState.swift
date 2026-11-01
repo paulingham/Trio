@@ -48,6 +48,11 @@ import WidgetKit
     var bolusIncrement: Decimal = 0.05
     var confirmBolusFaster: Bool = false
 
+    // Complication configuration, chosen on the phone
+    var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
+    var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
+    var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
+
     // Forecast options
     var showForecast: Bool = false
     var isForecastCone: Bool = false
@@ -427,22 +432,6 @@ import WidgetKit
             self.lastLoopTime = lastLoopTime
         }
 
-        // Persist a compact snapshot for the watch face complications and ask WidgetKit to redraw.
-        // Runs for both delivery paths (foreground message and background userInfo) because
-        // both end up here after the debounce.
-        let stateDate = lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) } ?? Date()
-        ComplicationStore.save(ComplicationState(
-            date: stateDate,
-            glucose: currentGlucose,
-            glucoseColorHex: currentGlucoseColorString,
-            trend: trend ?? "",
-            delta: delta ?? "--",
-            iob: iob ?? "--",
-            cob: cob ?? "--",
-            lastLoopTime: lastLoopTime ?? "--"
-        ))
-        WidgetCenter.shared.reloadTimelines(ofKind: "TrioGlucoseComplication")
-
         if let glucoseData = message[WatchMessageKeys.glucoseValues] as? [[String: Any]] {
             glucoseValues = glucoseData.compactMap { data in
                 guard let glucose = data["glucose"] as? Double,
@@ -526,6 +515,18 @@ import WidgetKit
             }
         }
 
+        if let raw = message[WatchMessageKeys.complicationCornerValue] as? String {
+            complicationCornerValue = WatchComplicationValue.from(raw, default: WatchComplicationDefaults.cornerValue)
+        }
+
+        if let raw = message[WatchMessageKeys.complicationSecondaryValue] as? String {
+            complicationSecondaryValue = WatchComplicationValue.from(raw, default: WatchComplicationDefaults.secondaryValue)
+        }
+
+        if let minutes = (message[WatchMessageKeys.complicationStaleMinutes] as? NSNumber)?.intValue {
+            complicationStaleMinutes = minutes
+        }
+
         if let showForecast = message[WatchMessageKeys.showForecastWatch] as? Bool {
             self.showForecast = showForecast
         }
@@ -546,5 +547,24 @@ import WidgetKit
             forecastConeMax = forecastPayload[WatchMessageKeys.forecastConeMax] as? [Double] ?? []
             forecastLines = forecastPayload[WatchMessageKeys.forecastLines] as? [String: [Double]] ?? [:]
         }
+
+        // Persist a compact snapshot for the watch face complications and ask WidgetKit to redraw.
+        // Runs for both delivery paths (foreground message and background userInfo) because
+        // both end up here after the debounce.
+        let stateDate = lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) } ?? Date()
+        ComplicationStore.save(ComplicationState(
+            date: stateDate,
+            glucose: currentGlucose,
+            glucoseColorHex: currentGlucoseColorString,
+            trend: trend ?? "",
+            delta: delta ?? "--",
+            iob: iob ?? "--",
+            cob: cob ?? "--",
+            lastLoopTime: lastLoopTime ?? "--",
+            cornerValue: complicationCornerValue,
+            secondaryValue: complicationSecondaryValue,
+            staleMinutes: complicationStaleMinutes
+        ))
+        WidgetCenter.shared.reloadTimelines(ofKind: "TrioGlucoseComplication")
     }
 }

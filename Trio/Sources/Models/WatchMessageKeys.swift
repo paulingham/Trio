@@ -52,6 +52,11 @@ enum WatchMessageKeys {
     static let bolusIncrement = "bolusIncrement"
     static let confirmBolusFaster = "confirmBolusFaster"
 
+    // Complication configuration
+    static let complicationCornerValue = "complicationCornerValue"
+    static let complicationSecondaryValue = "complicationSecondaryValue"
+    static let complicationStaleMinutes = "complicationStaleMinutes"
+
     // Notification Actions
     static let snoozeDuration = "snoozeDuration"
     static let snoozeUntilDate = "snoozeUntilDate"
