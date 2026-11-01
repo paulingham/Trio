@@ -50,6 +50,11 @@ struct ComplicationState: Codable, Equatable {
     var glucoseValue: Double?
     /// Readings inside `chartWindow`, oldest first, user's units.
     var history: [ComplicationPoint]
+    /// When the loop last ran; nil when the phone did not say.
+    var loopDate: Date?
+    /// The user's low and high limits in their units; nil when the phone did not say.
+    var lowLimit: Double?
+    var highLimit: Double?
 
     static let placeholder = ComplicationState(
         date: .distantPast,
@@ -65,7 +70,10 @@ struct ComplicationState: Codable, Equatable {
         staleMinutes: WatchComplicationDefaults.staleMinutes,
         units: "mg/dL",
         glucoseValue: nil,
-        history: []
+        history: [],
+        loopDate: nil,
+        lowLimit: nil,
+        highLimit: nil
     )
 
     /// Realistic sample used by the watch face gallery and the settings page previews.
@@ -100,7 +108,10 @@ struct ComplicationState: Codable, Equatable {
             staleMinutes: staleMinutes,
             units: units,
             glucoseValue: curve.last,
-            history: history
+            history: history,
+            loopDate: date.addingTimeInterval(-2 * 60),
+            lowLimit: mmol ? 3.9 : 70,
+            highLimit: mmol ? 10.0 : 180
         )
     }
 
@@ -122,10 +133,13 @@ struct ComplicationState: Codable, Equatable {
         isMmol ? 2.5 ... 16.0 : 45 ... 290
     }
 
-    /// Band the chart keeps in view so a flat line sits where it should. Fixed rather than
-    /// the user's own limits, which the phone does not send to the watch.
-    var chartBand: ClosedRange<Double> {
-        isMmol ? 3.5 ... 10.0 : 63 ... 180
+    /// The user's in-range band, used for the chart background and the green part of the
+    /// ring. Falls back to a typical band when the phone has not sent the limits.
+    var inRangeBand: ClosedRange<Double> {
+        if let low = lowLimit, let high = highLimit, low < high {
+            return low ... high
+        }
+        return isMmol ? 3.9 ... 10.0 : 70 ... 180
     }
 
     /// Smallest vertical span the chart draws, so a flat trace is not blown up to noise.
@@ -158,6 +172,13 @@ struct ComplicationState: Codable, Equatable {
 
     func isStale(at reference: Date) -> Bool {
         reference.timeIntervalSince(date) > staleAfter
+    }
+
+    /// True when the loop has not run within the stale threshold, so IOB and COB may be out of
+    /// date even though the CGM is still reporting. False when the phone sent no loop date.
+    func isLoopStale(at reference: Date) -> Bool {
+        guard let loopDate = loopDate else { return false }
+        return reference.timeIntervalSince(loopDate) > staleAfter
     }
 
     func minutesAgo(at reference: Date) -> Int {

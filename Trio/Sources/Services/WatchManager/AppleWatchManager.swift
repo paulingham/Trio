@@ -218,6 +218,15 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 } else {
                     watchState.lastLoopTime = "\(lastLoopMinutes) min"
                 }
+                watchState.lastLoopDate = self.apsManager.lastLoopDate
+
+                // The user's own limits in their units, for the complication ring and chart band
+                watchState.lowGlucoseLimit = self.units == .mgdL
+                    ? Double(truncating: self.lowGlucose as NSNumber)
+                    : Double(truncating: self.lowGlucose.asMmolL as NSNumber)
+                watchState.highGlucoseLimit = self.units == .mgdL
+                    ? Double(truncating: self.highGlucose as NSNumber)
+                    : Double(truncating: self.highGlucose.asMmolL as NSNumber)
 
                 // Set IOB and COB from latest determination
                 let iob = self.iobService.currentIOB ?? 0
@@ -534,6 +543,9 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             WatchMessageKeys.complicationCornerValue: state.complicationCornerValue.rawValue,
             WatchMessageKeys.complicationSecondaryValue: state.complicationSecondaryValue.rawValue,
             WatchMessageKeys.complicationStaleMinutes: state.complicationStaleMinutes,
+            WatchMessageKeys.lastLoopDate: state.lastLoopDate?.timeIntervalSince1970 ?? 0,
+            WatchMessageKeys.lowGlucoseLimit: state.lowGlucoseLimit ?? 0,
+            WatchMessageKeys.highGlucoseLimit: state.highGlucoseLimit ?? 0,
             WatchMessageKeys.units: state.units.rawValue,
             WatchMessageKeys.showForecastWatch: state.showForecast,
             WatchMessageKeys.isForecastCone: state.isForecastCone,

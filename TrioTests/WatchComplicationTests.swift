@@ -28,7 +28,7 @@ import Testing
 
     @Test("Out-of-range stale minutes are clamped on decode") func staleMinutesClamped() throws {
         #expect(try decodeSettings(#"{"watchComplicationStaleMinutes": 0}"#).watchComplicationStaleMinutes == 5)
-        #expect(try decodeSettings(#"{"watchComplicationStaleMinutes": 999}"#).watchComplicationStaleMinutes == 60)
+        #expect(try decodeSettings(#"{"watchComplicationStaleMinutes": 999}"#).watchComplicationStaleMinutes == 30)
         #expect(WatchComplicationDefaults.clampedStaleMinutes(-3) == 5)
         #expect(WatchComplicationDefaults.clampedStaleMinutes(30) == 30)
     }
@@ -82,6 +82,32 @@ import Testing
         state.trend = "Unknown"
         #expect(state.trendArrow == "")
         #expect(state.text(for: .delta, labelled: false) == "+0.3")
+    }
+
+    @Test("Loop staleness is separate from reading staleness") func loopStaleness() {
+        let now = Date()
+        var state = ComplicationState.sample(units: "mmol/L", staleMinutes: 15, date: now)
+        state.loopDate = now.addingTimeInterval(-20 * 60)
+        let model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        #expect(!model.isStale)
+        #expect(model.isLoopStale)
+        #expect(model.valueColor == .gray)
+        #expect(model.iobStatusText == "loop 2 min")
+        state.loopDate = nil
+        #expect(!state.isLoopStale(at: now.addingTimeInterval(3600)))
+    }
+
+    @Test("Ring and chart band follow the user's limits") func inRangeBand() {
+        var state = ComplicationState.sample(units: "mg/dL")
+        #expect(state.inRangeBand == 70 ... 180)
+        state.lowLimit = 80
+        state.highLimit = 160
+        #expect(state.inRangeBand == 80 ... 160)
+        state.highLimit = 60
+        #expect(state.inRangeBand == 70 ... 180)
+        let model = ComplicationModel(kind: .gauge, state: state, referenceDate: state.date)
+        #expect(model.gaugeGradient.stops.first?.color == .red)
+        #expect(model.gaugeGradient.stops.count == 5)
     }
 
     @Test("Placeholder has no reading and a neutral colour") func placeholder() {

@@ -54,6 +54,11 @@ import WidgetKit
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
     /// "mg/dL" or "mmol/L" as sent by the phone.
     var glucoseUnits: String = "mg/dL"
+    /// When the loop last ran on the phone, for greying IOB and COB on the complications.
+    var lastLoopDate: Date?
+    /// The user's low and high limits in their units, for the complication ring and chart band.
+    var lowGlucoseLimit: Double?
+    var highGlucoseLimit: Double?
 
     // Forecast options
     var showForecast: Bool = false
@@ -533,6 +538,18 @@ import WidgetKit
             glucoseUnits = units
         }
 
+        if let loopTimestamp = (message[WatchMessageKeys.lastLoopDate] as? NSNumber)?.doubleValue, loopTimestamp > 0 {
+            lastLoopDate = Date(timeIntervalSince1970: loopTimestamp)
+        }
+
+        if let low = (message[WatchMessageKeys.lowGlucoseLimit] as? NSNumber)?.doubleValue, low > 0 {
+            lowGlucoseLimit = low
+        }
+
+        if let high = (message[WatchMessageKeys.highGlucoseLimit] as? NSNumber)?.doubleValue, high > 0 {
+            highGlucoseLimit = high
+        }
+
         if let showForecast = message[WatchMessageKeys.showForecastWatch] as? Bool {
             self.showForecast = showForecast
         }
@@ -580,7 +597,10 @@ import WidgetKit
             staleMinutes: complicationStaleMinutes,
             units: glucoseUnits,
             glucoseValue: latestReading.glucose,
-            history: complicationHistory(until: readingDate)
+            history: complicationHistory(until: readingDate),
+            loopDate: lastLoopDate,
+            lowLimit: lowGlucoseLimit,
+            highLimit: highGlucoseLimit
         ))
         if changed {
             reloadInstalledComplications()

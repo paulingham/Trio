@@ -14,6 +14,11 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     var iob: String?
     var cob: String?
     var lastLoopTime: String?
+    /// When the loop last ran; the complications grey IOB and COB when it is older than the stale threshold.
+    var lastLoopDate: Date?
+    /// The user's low and high glucose limits in the user's units, for the complication ring and chart band.
+    var lowGlucoseLimit: Double?
+    var highGlucoseLimit: Double?
     var overridePresets: [OverridePresetWatch] = []
     var tempTargetPresets: [TempTargetPresetWatch] = []
 
@@ -57,6 +62,9 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
             lhs.iob == rhs.iob &&
             lhs.cob == rhs.cob &&
             lhs.lastLoopTime == rhs.lastLoopTime &&
+            lhs.lastLoopDate == rhs.lastLoopDate &&
+            lhs.lowGlucoseLimit == rhs.lowGlucoseLimit &&
+            lhs.highGlucoseLimit == rhs.highGlucoseLimit &&
             lhs.overridePresets == rhs.overridePresets &&
             lhs.tempTargetPresets == rhs.tempTargetPresets &&
             lhs.maxBolus == rhs.maxBolus &&
@@ -93,6 +101,9 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
         hasher.combine(iob)
         hasher.combine(cob)
         hasher.combine(lastLoopTime)
+        hasher.combine(lastLoopDate)
+        hasher.combine(lowGlucoseLimit)
+        hasher.combine(highGlucoseLimit)
         hasher.combine(overridePresets)
         hasher.combine(tempTargetPresets)
         hasher.combine(maxBolus)

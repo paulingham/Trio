@@ -100,7 +100,11 @@ struct ComplicationModel {
         self.isPlaceholder = isPlaceholder
         self.fullColor = fullColor
         isStale = !isPlaceholder && state.isStale(at: referenceDate)
+        isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
     }
+
+    /// True when the loop has not run within the stale threshold; IOB and COB are then greyed.
+    let isLoopStale: Bool
 
     /// Colour for the glucose value: the phone's colour on full-colour faces, grey when stale.
     var glucoseColor: Color {
@@ -108,8 +112,15 @@ struct ComplicationModel {
         return fullColor ? state.glucoseColor : .primary
     }
 
-    /// Colour for other primary values such as IOB.
-    var valueColor: Color { isStale ? .gray : .primary }
+    /// Colour for IOB and COB: grey when the reading or the loop is stale.
+    var valueColor: Color { isStale || isLoopStale ? .gray : .primary }
+
+    /// Status line for the IOB complication: reading age, then loop age, then COB.
+    var iobStatusText: String {
+        if isStale { return ageText }
+        if isLoopStale { return "loop \(state.lastLoopTime)" }
+        return "COB \(state.cob)"
+    }
 
     /// Colour for secondary text.
     var dimColor: Color { isStale ? .gray : .secondary }
@@ -144,18 +155,24 @@ struct ComplicationModel {
         state.gaugeValue ?? (state.gaugeRange.lowerBound + state.gaugeRange.upperBound) / 2
     }
 
-    /// Red for lows, green through the middle, amber then red for highs.
+    /// Red below the user's low limit, green inside the band, amber then red above the high limit.
     var gaugeGradient: Gradient {
         if isStale || !fullColor || state.gaugeValue == nil {
             return Gradient(colors: [.gray, .gray])
         }
+        let range = state.gaugeRange
+        let span = range.upperBound - range.lowerBound
+        let fraction: (Double) -> Double = { value in
+            min(max((value - range.lowerBound) / span, 0), 1)
+        }
+        let low = fraction(state.inRangeBand.lowerBound)
+        let high = fraction(state.inRangeBand.upperBound)
         return Gradient(stops: [
-            .init(color: .red, location: 0.0),
-            .init(color: .green, location: 0.12),
-            .init(color: .green, location: 0.45),
-            .init(color: .yellow, location: 0.6),
-            .init(color: .orange, location: 0.8),
-            .init(color: .red, location: 1.0)
+            .init(color: .red, location: 0),
+            .init(color: .green, location: low),
+            .init(color: .green, location: high),
+            .init(color: .orange, location: min(high + 0.15, 1)),
+            .init(color: .red, location: 1)
         ])
     }
 }
@@ -242,7 +259,7 @@ struct ComplicationCircularContent: View {
             Text(model.state.iob)
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(model.valueColor)
-            Text(model.isStale ? model.ageText : "COB \(model.state.cob)")
+            Text(model.iobStatusText)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(model.dimColor)
         }
@@ -283,7 +300,7 @@ struct ComplicationCornerLabel: View {
             }
             .tint(model.gaugeGradient)
         case .iob:
-            Text(model.isStale ? model.ageText : "COB \(model.cobText) · \(model.state.glucose)")
+            Text(model.isStale || model.isLoopStale ? model.iobStatusText : "COB \(model.cobText) · \(model.state.glucose)")
         default:
             Text(model.cornerText)
         }
@@ -377,7 +394,7 @@ struct ComplicationRectangularContent: View {
                     .foregroundStyle(model.glucoseColor)
                 Text(model.isStale ? "\(model.ageText) ago" : "\(model.state.delta) · loop \(model.state.lastLoopTime)")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(model.isLoopStale ? Color.gray : Color.secondary)
             }
         }
     }
@@ -437,7 +454,7 @@ struct ComplicationSparkline: View {
     /// Vertical range: the data plus the in-range band, stretched to at least the minimum span.
     private var valueRange: ClosedRange<Double> {
         let values = model.state.history.map(\.v)
-        let band = model.state.chartBand
+        let band = model.state.inRangeBand
         let lo = min(values.min() ?? band.lowerBound, band.lowerBound)
         let hi = max(values.max() ?? band.upperBound, band.upperBound)
         return lo ... max(hi, lo + model.state.chartMinimumSpan)
@@ -448,7 +465,7 @@ struct ComplicationSparkline: View {
         let range = valueRange
         let end = model.state.date.timeIntervalSince1970
         let start = end - ComplicationState.chartWindow
-        let band = model.state.chartBand
+        let band = model.state.inRangeBand
 
         GeometryReader { geo in
             if points.count >= 2 {
