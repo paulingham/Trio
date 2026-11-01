@@ -34,6 +34,9 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
     private var highGlucose: Decimal = 180.0
     private var currentGlucoseTarget: Decimal = 100.0
     private var activeBolusAmount: Double = 0.0
+    private var lastComplicationTransferDate: Date = .distantPast
+    private static let complicationTransferMinimumInterval: TimeInterval = 10 * 60
+    private static let complicationTransferMaximumInterval: TimeInterval = 60 * 60
 
     // Queue for handling Core Data change notifications
     private let queue = DispatchQueue(label: "BaseWatchManagerManager.queue", qos: .utility)
@@ -608,12 +611,28 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             }
         } else {
             session.outstandingUserInfoTransfers
-                .filter { $0.userInfo[WatchMessageKeys.watchState] != nil }
+                .filter { $0.userInfo[WatchMessageKeys.watchState] != nil && !$0.isCurrentComplicationInfo }
                 .forEach { $0.cancel() }
-            session.transferUserInfo([WatchMessageKeys.watchState: message])
-            debug(.watch, "Watch state queued for background transfer")
+            if shouldTransferForComplication(session, at: state.date) {
+                session.transferCurrentComplicationUserInfo([WatchMessageKeys.watchState: message])
+                lastComplicationTransferDate = state.date
+                debug(.watch, "📤 Transferred new WatchState snapshot for the complication")
+            } else {
+                session.transferUserInfo([WatchMessageKeys.watchState: message])
+                debug(.watch, "📤 Transferred new WatchState snapshot via userInfo")
+            }
         }
         WatchStateSnapshot.saveLatestDateToDisk(state.date)
+    }
+
+    private func shouldTransferForComplication(_ session: WCSession, at date: Date) -> Bool {
+        guard session.isComplicationEnabled else { return false }
+        let remaining = session.remainingComplicationUserInfoTransfers
+        guard remaining > 0 else { return false }
+        let endOfDay = Calendar.current.startOfDay(for: date).addingTimeInterval(24 * 60 * 60)
+        let spread = endOfDay.timeIntervalSince(date) / Double(remaining)
+        let interval = min(max(spread, Self.complicationTransferMinimumInterval), Self.complicationTransferMaximumInterval)
+        return date.timeIntervalSince(lastComplicationTransferDate) >= interval
     }
 
     func sendAcknowledgment(toWatch success: Bool, message: String = "", ackCode: AcknowledgmentCode) {
