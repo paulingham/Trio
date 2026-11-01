@@ -66,17 +66,14 @@ struct TrioComplicationEntryView: View {
     let kind: ComplicationKind
     let entry: TrioGlucoseEntry
 
-    private var model: ComplicationModel {
-        ComplicationModel(
+    var body: some View {
+        let model = ComplicationModel(
             kind: kind,
             state: entry.state,
             referenceDate: entry.date,
             isPlaceholder: entry.isPlaceholder,
             fullColor: renderingMode == .fullColor
         )
-    }
-
-    var body: some View {
         switch family {
         case .accessoryRectangular:
             ComplicationRectangularContent(model: model)

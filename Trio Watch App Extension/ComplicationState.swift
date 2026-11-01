@@ -18,8 +18,11 @@ struct ComplicationPoint: Codable, Equatable {
 /// the App Group container, which is the only storage a WidgetKit extension can
 /// read that the host app can write. The iOS app also compiles it so the settings
 /// page can render previews of the complications with sample data.
+///
+/// If the stored JSON ever fails to decode, `ComplicationStore.load()` returns nil, the
+/// face shows the placeholder, and the next payload from the phone rewrites it.
 struct ComplicationState: Codable, Equatable {
-    /// When the phone produced the state (not when the watch received it).
+    /// Time of the latest reading the snapshot describes.
     var date: Date
     /// Glucose already formatted in the user's units by the phone, e.g. "7.2" or "130".
     var glucose: String
@@ -36,19 +39,17 @@ struct ComplicationState: Codable, Equatable {
     /// Last loop age as sent by the phone, e.g. "3 min" or "--".
     var lastLoopTime: String
 
-    // Configuration chosen on the phone (Settings → Smart Watch → Apple Watch → Complication).
-    // Optional so a snapshot written by an older build still decodes.
-    var cornerValue: WatchComplicationValue?
-    var secondaryValue: WatchComplicationValue?
-    var staleMinutes: Int?
+    // Configuration chosen on the phone (Settings → Smart Watch → Apple Watch → Complication Settings).
+    var cornerValue: WatchComplicationValue
+    var secondaryValue: WatchComplicationValue
+    var staleMinutes: Int
 
-    // Numeric data for the gauge and chart complications. Optional for the same reason.
     /// "mg/dL" or "mmol/L" as sent by the phone.
-    var units: String?
-    /// Current glucose as a number in the user's units.
+    var units: String
+    /// Current glucose as a number in the user's units; nil when there is no reading.
     var glucoseValue: Double?
-    /// Up to the last three hours of readings, oldest first, user's units.
-    var history: [ComplicationPoint]?
+    /// Readings inside `chartWindow`, oldest first, user's units.
+    var history: [ComplicationPoint]
 
     static let placeholder = ComplicationState(
         date: .distantPast,
@@ -58,7 +59,13 @@ struct ComplicationState: Codable, Equatable {
         delta: "--",
         iob: "--",
         cob: "--",
-        lastLoopTime: "--"
+        lastLoopTime: "--",
+        cornerValue: WatchComplicationDefaults.cornerValue,
+        secondaryValue: WatchComplicationDefaults.secondaryValue,
+        staleMinutes: WatchComplicationDefaults.staleMinutes,
+        units: "mg/dL",
+        glucoseValue: nil,
+        history: []
     )
 
     /// Realistic sample used by the watch face gallery and the settings page previews.
@@ -69,7 +76,7 @@ struct ComplicationState: Codable, Equatable {
         staleMinutes: Int = WatchComplicationDefaults.staleMinutes,
         date: Date = Date()
     ) -> ComplicationState {
-        let mmol = units.lowercased().hasPrefix("mmol")
+        let mmol = Self.isMmol(units)
         // A gentle fall into range then a slow rise after a meal, 5 minute spacing over 3 hours.
         let mmolCurve: [Double] = [
             8.9, 8.6, 8.3, 8.0, 7.7, 7.4, 7.1, 6.9, 6.7, 6.5, 6.3, 6.1,
@@ -97,27 +104,33 @@ struct ComplicationState: Codable, Equatable {
         )
     }
 
-    var resolvedCornerValue: WatchComplicationValue { cornerValue ?? WatchComplicationDefaults.cornerValue }
-    var resolvedSecondaryValue: WatchComplicationValue { secondaryValue ?? WatchComplicationDefaults.secondaryValue }
+    /// Window the chart complication covers.
+    static let chartWindow: TimeInterval = 3 * 60 * 60
+
+    static func isMmol(_ units: String) -> Bool {
+        units.lowercased().hasPrefix("mmol")
+    }
+
+    var isMmol: Bool { Self.isMmol(units) }
 
     /// Readings older than this are shown greyed out with their age.
-    var staleAfter: TimeInterval {
-        TimeInterval(staleMinutes ?? WatchComplicationDefaults.staleMinutes) * 60
-    }
-
-    /// True for mmol/L. Falls back to inspecting the formatted glucose when the phone
-    /// did not send units (older build).
-    var isMmol: Bool {
-        if let units = units, !units.isEmpty {
-            return units.lowercased().hasPrefix("mmol")
-        }
-        return glucose.contains(".") || glucose.contains(",")
-    }
+    var staleAfter: TimeInterval { TimeInterval(staleMinutes) * 60 }
 
     /// Range of the gauge ring. Wide enough to show lows and highs, narrow enough that
     /// in-range values still move the needle.
     var gaugeRange: ClosedRange<Double> {
         isMmol ? 2.5 ... 16.0 : 45 ... 290
+    }
+
+    /// Band the chart keeps in view so a flat line sits where it should. Fixed rather than
+    /// the user's own limits, which the phone does not send to the watch.
+    var chartBand: ClosedRange<Double> {
+        isMmol ? 3.5 ... 10.0 : 63 ... 180
+    }
+
+    /// Smallest vertical span the chart draws, so a flat trace is not blown up to noise.
+    var chartMinimumSpan: Double {
+        isMmol ? 1 : 18
     }
 
     /// Current glucose clamped into `gaugeRange`, or nil when unknown.
@@ -126,27 +139,32 @@ struct ComplicationState: Codable, Equatable {
         return min(max(value, gaugeRange.lowerBound), gaugeRange.upperBound)
     }
 
-    /// Window the chart complication covers.
-    static let chartWindow: TimeInterval = 3 * 60 * 60
-
+    /// Arrow for the Nightscout direction name, matching `BloodGlucose.Direction.symbol`
+    /// on the phone (not available to the watch targets).
     var trendArrow: String {
         switch trend {
-        case "DoubleUp": return "⇈"
+        case "TripleUp": return "↑↑↑"
+        case "DoubleUp": return "↑↑"
         case "SingleUp": return "↑"
-        case "FortyFiveUp": return "↗"
+        case "FortyFiveUp": return "↗︎"
         case "Flat": return "→"
-        case "FortyFiveDown": return "↘"
+        case "FortyFiveDown": return "↘︎"
         case "SingleDown": return "↓"
-        case "DoubleDown": return "⇊"
+        case "DoubleDown": return "↓↓"
+        case "TripleDown": return "↓↓↓"
         default: return ""
         }
     }
 
-    func isStale(at reference: Date = Date()) -> Bool {
+    func isStale(at reference: Date) -> Bool {
         reference.timeIntervalSince(date) > staleAfter
     }
 
-    /// Text for a configurable slot. Empty when the slot is set to nothing or the value is unknown.
+    func minutesAgo(at reference: Date) -> Int {
+        max(0, Int(reference.timeIntervalSince(date) / 60))
+    }
+
+    /// Text for a configurable slot. Empty when the slot is set to nothing.
     func text(for value: WatchComplicationValue, labelled: Bool) -> String {
         switch value {
         case .nothing: return ""
@@ -155,10 +173,6 @@ struct ComplicationState: Codable, Equatable {
         case .delta: return "\(trendArrow) \(delta)".trimmingCharacters(in: .whitespaces)
         case .loopAge: return labelled ? "Loop \(lastLoopTime)" : lastLoopTime
         }
-    }
-
-    func minutesAgo(at reference: Date = Date()) -> Int {
-        max(0, Int(reference.timeIntervalSince(date) / 60))
     }
 
     var glucoseColor: Color {
@@ -170,41 +184,25 @@ struct ComplicationState: Codable, Equatable {
 enum ComplicationStore {
     static let key = "ComplicationState.latest"
 
-    /// The App Group identifier shared by the watch app and the complication extension.
-    ///
-    /// Both watch targets set `INFOPLIST_KEY_AppGroupID = $(APP_GROUP_ID)`, which is
-    /// `TRIO_APP_GROUP_ID` from `Config.xcconfig` and matches their entitlements, so the
-    /// Info.plist key is the source of truth. The bundle-identifier derivation below is only
-    /// a fallback for a project file that lost that build setting and assumes the default
-    /// `org.nightscout.<TEAM>.trio` bundle identifier.
-    static var appGroupID: String? {
-        if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String,
-           !fromPlist.isEmpty, !fromPlist.hasPrefix("$(")
-        {
-            return fromPlist
-        }
-        guard let bundleID = Bundle.main.bundleIdentifier,
-              let range = bundleID.range(of: ".watchkitapp")
+    /// The shared container. Both watch targets set `INFOPLIST_KEY_AppGroupID = $(APP_GROUP_ID)`,
+    /// which is `TRIO_APP_GROUP_ID` from `Config.xcconfig` and matches their entitlements.
+    static let defaults: UserDefaults? = {
+        guard let id = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String, !id.isEmpty
         else { return nil }
-        let base = String(bundleID[..<range.lowerBound])
-        return "group.\(base).trio-app-group"
-    }
-
-    static var defaults: UserDefaults? {
-        guard let id = appGroupID else { return nil }
         return UserDefaults(suiteName: id)
-    }
+    }()
 
-    /// Writes the snapshot. Returns false when nothing changed, so callers can skip a
-    /// WidgetKit reload and keep inside its refresh budget.
+    private static var lastSaved: ComplicationState?
+
+    /// Writes the snapshot. Returns false when it matches the last one written by this
+    /// process, so callers can skip a WidgetKit reload and keep inside its refresh budget.
     @discardableResult static func save(_ state: ComplicationState) -> Bool {
-        guard let defaults = defaults,
+        guard state != lastSaved,
+              let defaults = defaults,
               let data = try? JSONEncoder().encode(state)
         else { return false }
-        if let existing = defaults.data(forKey: key), existing == data {
-            return false
-        }
         defaults.set(data, forKey: key)
+        lastSaved = state
         return true
     }
 
@@ -215,24 +213,16 @@ enum ComplicationStore {
 }
 
 extension Color {
-    /// Parses "#RRGGBB" or "#RRGGBBAA" (hash optional). Returns nil for anything else.
-    /// Named to avoid clashing with other hex initialisers in the iOS app.
+    /// Parses "#RRGGBB" (hash optional), the form `Color.toHexString()` produces on the phone.
+    /// Returns nil for anything else. Named to avoid clashing with other hex initialisers.
     init?(complicationHex hex: String) {
         var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6 || s.count == 8, let value = UInt64(s, radix: 16) else { return nil }
-        let r, g, b, a: Double
-        if s.count == 6 {
-            r = Double((value >> 16) & 0xFF) / 255
-            g = Double((value >> 8) & 0xFF) / 255
-            b = Double(value & 0xFF) / 255
-            a = 1
-        } else {
-            r = Double((value >> 24) & 0xFF) / 255
-            g = Double((value >> 16) & 0xFF) / 255
-            b = Double((value >> 8) & 0xFF) / 255
-            a = Double(value & 0xFF) / 255
-        }
-        self.init(red: r, green: g, blue: b, opacity: a)
+        guard s.count == 6, let value = UInt64(s, radix: 16) else { return nil }
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
     }
 }

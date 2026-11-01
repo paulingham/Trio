@@ -24,11 +24,6 @@ enum WatchComplicationValue: String, CaseIterable, Identifiable, Codable, Hashab
         }
     }
 
-    /// Tolerant parse of a raw value coming over WatchConnectivity or from storage.
-    static func from(_ raw: String?, default fallback: WatchComplicationValue) -> WatchComplicationValue {
-        guard let raw = raw, let value = WatchComplicationValue(rawValue: raw) else { return fallback }
-        return value
-    }
 }
 
 /// Defaults shared by every target so the complication behaves the same before

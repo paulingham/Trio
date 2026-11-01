@@ -89,7 +89,7 @@ struct ComplicationModel {
     init(
         kind: ComplicationKind,
         state: ComplicationState,
-        referenceDate: Date = Date(),
+        referenceDate: Date,
         isPlaceholder: Bool = false,
         fullColor: Bool = true
     ) {
@@ -101,11 +101,16 @@ struct ComplicationModel {
         isStale = !isPlaceholder && state.isStale(at: referenceDate)
     }
 
+    /// Colour for the glucose value: the phone's colour on full-colour faces, grey when stale.
     var glucoseColor: Color {
         if isStale { return .gray }
         return fullColor ? state.glucoseColor : .primary
     }
 
+    /// Colour for other primary values such as IOB.
+    var valueColor: Color { isStale ? .gray : .primary }
+
+    /// Colour for secondary text.
     var dimColor: Color { isStale ? .gray : .secondary }
 
     var trendArrow: String { isStale ? "" : state.trendArrow }
@@ -122,14 +127,14 @@ struct ComplicationModel {
     var iobText: String { "\(state.iob) U" }
     var cobText: String { "\(state.cob) g" }
 
-    /// Text under the glucose on circular slots.
+    /// Text under the glucose on circular slots (Small Line).
     var secondaryText: String {
-        isStale ? ageText : state.text(for: state.resolvedSecondaryValue, labelled: false)
+        isStale ? ageText : state.text(for: state.secondaryValue, labelled: false)
     }
 
-    /// Curved text on corner slots.
+    /// Curved text on corner slots (Corner Label).
     var cornerText: String {
-        isStale ? ageText : state.text(for: state.resolvedCornerValue, labelled: true)
+        isStale ? ageText : state.text(for: state.cornerValue, labelled: true)
     }
 
     var gaugeValue: Double { state.gaugeValue ?? state.gaugeRange.lowerBound }
@@ -148,11 +153,45 @@ struct ComplicationModel {
             .init(color: .red, location: 1.0)
         ])
     }
+}
 
-    /// Readings inside the chart window, oldest first.
-    var chartPoints: [ComplicationPoint] {
-        let from = state.date.timeIntervalSince1970 - ComplicationState.chartWindow
-        return (state.history ?? []).filter { $0.t >= from }.sorted { $0.t < $1.t }
+// MARK: - Shared pieces
+
+/// The glucose ring used on circular slots and inside the rectangular gauge.
+private struct GlucoseRingGauge: View {
+    let model: ComplicationModel
+    let fontSize: CGFloat
+
+    var body: some View {
+        Gauge(value: model.gaugeValue, in: model.state.gaugeRange) {
+            Text("BG")
+        } currentValueLabel: {
+            Text(model.state.glucose)
+                .font(.system(size: fontSize, weight: .bold))
+                .minimumScaleFactor(0.5)
+                .foregroundStyle(model.glucoseColor)
+        }
+        .gaugeStyle(.accessoryCircular)
+        .tint(model.gaugeGradient)
+    }
+}
+
+/// Small caption above a value, used for IOB and COB.
+private struct LabelledValue: View {
+    let model: ComplicationModel
+    let label: String
+    let value: String
+    let size: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: -2) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(model.dimColor)
+            Text(value)
+                .font(.system(size: size, weight: .bold))
+                .foregroundStyle(model.valueColor)
+        }
     }
 }
 
@@ -162,59 +201,43 @@ struct ComplicationCircularContent: View {
     let model: ComplicationModel
 
     var body: some View {
-        switch model.kind {
-        case .chart, .glucose:
-            glucose
-        case .gauge:
-            gauge
-        case .iob:
-            iob
+        Group {
+            switch model.kind {
+            case .chart, .glucose:
+                glucose
+            case .gauge:
+                GlucoseRingGauge(model: model, fontSize: 16)
+            case .iob:
+                iob
+            }
         }
+        .fontDesign(.rounded)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
     }
 
     private var glucose: some View {
         VStack(spacing: -2) {
             Text(model.state.glucose)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             Text(model.secondaryText)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(model.dimColor)
         }
         .padding(.horizontal, 2)
     }
 
-    private var gauge: some View {
-        Gauge(value: model.gaugeValue, in: model.state.gaugeRange) {
-            Text("BG")
-        } currentValueLabel: {
-            Text(model.state.glucose)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.5)
-                .foregroundStyle(model.glucoseColor)
-        }
-        .gaugeStyle(.accessoryCircular)
-        .tint(model.gaugeGradient)
-    }
-
     private var iob: some View {
         VStack(spacing: -1) {
             Text("IOB")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(model.dimColor)
             Text(model.state.iob)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .foregroundStyle(model.isStale ? .gray : .primary)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(model.valueColor)
             Text(model.isStale ? model.ageText : "COB \(model.state.cob)")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(model.dimColor)
         }
         .padding(.horizontal, 2)
@@ -228,20 +251,11 @@ struct ComplicationCornerMain: View {
     let model: ComplicationModel
 
     var body: some View {
-        switch model.kind {
-        case .iob:
-            Text(model.state.iob)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .foregroundStyle(model.isStale ? .gray : .primary)
-        default:
-            Text(model.glucoseWithArrow)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .foregroundStyle(model.glucoseColor)
-        }
+        Text(model.kind == .iob ? model.state.iob : model.glucoseWithArrow)
+            .font(.system(size: 20, weight: .bold, design: .rounded))
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+            .foregroundStyle(model.kind == .iob ? model.valueColor : model.glucoseColor)
     }
 }
 
@@ -257,9 +271,9 @@ struct ComplicationCornerLabel: View {
             } currentValueLabel: {
                 Text(model.state.glucose)
             } minimumValueLabel: {
-                Text(model.state.isMmol ? "3" : "50")
+                Text(model.state.gaugeRange.lowerBound, format: .number.precision(.fractionLength(0)))
             } maximumValueLabel: {
-                Text(model.state.isMmol ? "16" : "290")
+                Text(model.state.gaugeRange.upperBound, format: .number.precision(.fractionLength(0)))
             }
             .tint(model.gaugeGradient)
         case .iob:
@@ -276,146 +290,111 @@ struct ComplicationRectangularContent: View {
     let model: ComplicationModel
 
     var body: some View {
-        switch model.kind {
-        case .glucose:
-            glucose
-        case .gauge:
-            gauge
-        case .iob:
-            iob
-        case .chart:
-            chart
+        Group {
+            switch model.kind {
+            case .glucose:
+                glucose
+            case .gauge:
+                gauge
+            case .iob:
+                iob
+            case .chart:
+                chart
+            }
         }
+        .fontDesign(.rounded)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var glucoseLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(model.state.glucose)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             if !model.isStale {
                 Text(model.state.trendArrow)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(model.glucoseColor)
                 Text(model.state.delta)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }
-        .minimumScaleFactor(0.7)
-        .lineLimit(1)
     }
 
     private var ageLine: some View {
         Text("\(model.ageText) ago · loop \(model.state.lastLoopTime)")
-            .font(.system(size: 11, design: .rounded))
+            .font(.system(size: 11))
             .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
     }
 
     private var glucose: some View {
         VStack(alignment: .leading, spacing: 1) {
             glucoseLine
             Text("IOB \(model.iobText) · COB \(model.cobText)")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(model.isStale ? .gray : .primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(model.valueColor)
             ageLine
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var gauge: some View {
         HStack(spacing: 8) {
-            Gauge(value: model.gaugeValue, in: model.state.gaugeRange) {
-                Text("BG")
-            } currentValueLabel: {
-                Text(model.state.glucose)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .minimumScaleFactor(0.5)
-                    .foregroundStyle(model.glucoseColor)
-            }
-            .gaugeStyle(.accessoryCircular)
-            .tint(model.gaugeGradient)
-            .frame(width: 48, height: 48)
+            GlucoseRingGauge(model: model, fontSize: 14)
+                .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.secondaryText)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(model.isStale ? .gray : .primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(model.valueColor)
                 Text("IOB \(model.iobText)")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(model.isStale ? .gray : .primary)
-                    .lineLimit(1)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(model.valueColor)
                 Text("COB \(model.cobText)")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(model.dimColor)
-                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var iob: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: -2) {
-                    Text("IOB")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(model.dimColor)
-                    Text(model.iobText)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(model.isStale ? .gray : .primary)
-                }
-                VStack(alignment: .leading, spacing: -2) {
-                    Text("COB")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(model.dimColor)
-                    Text(model.cobText)
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(model.isStale ? .gray : .primary)
-                }
+                LabelledValue(model: model, label: "IOB", value: model.iobText, size: 22)
+                LabelledValue(model: model, label: "COB", value: model.cobText, size: 22)
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
             HStack(spacing: 4) {
                 Text(model.glucoseWithArrow)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(model.glucoseColor)
                 Text(model.isStale ? "\(model.ageText) ago" : "\(model.state.delta) · loop \(model.state.lastLoopTime)")
-                    .font(.system(size: 11, design: .rounded))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var chart: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(model.glucoseWithArrow)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(model.glucoseColor)
                 Text(model.secondaryText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(model.dimColor)
-                Text(model.state.resolvedSecondaryValue == .iob ? "COB \(model.state.cob)" : "IOB \(model.state.iob)")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(model.isStale ? .gray : .primary)
+                // Third line is IOB unless Small Line already shows it, then COB.
+                Text(model.state.secondaryValue == .iob ? "COB \(model.state.cob)" : "IOB \(model.state.iob)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(model.valueColor)
             }
-            .lineLimit(1)
             .minimumScaleFactor(0.6)
             .fixedSize(horizontal: true, vertical: false)
             ComplicationSparkline(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -449,34 +428,36 @@ struct ComplicationInlineContent: View {
 struct ComplicationSparkline: View {
     let model: ComplicationModel
 
+    /// Vertical range: the data plus the in-range band, stretched to at least the minimum span.
+    private var valueRange: ClosedRange<Double> {
+        let values = model.state.history.map(\.v)
+        let band = model.state.chartBand
+        let lo = min(values.min() ?? band.lowerBound, band.lowerBound)
+        let hi = max(values.max() ?? band.upperBound, band.upperBound)
+        return lo ... max(hi, lo + model.state.chartMinimumSpan)
+    }
+
     var body: some View {
+        let points = model.state.history
+        let range = valueRange
+        let end = model.state.date.timeIntervalSince1970
+        let start = end - ComplicationState.chartWindow
+        let band = model.state.chartBand
+
         GeometryReader { geo in
-            let points = model.chartPoints
-            let size = geo.size
-            let lineColor: Color = model.isStale ? .gray : (model.fullColor ? model.glucoseColor : .primary)
-
             if points.count >= 2 {
-                let end = model.state.date.timeIntervalSince1970
-                let start = end - ComplicationState.chartWindow
-                let values = points.map(\.v)
-                // Keep the in-range band in view so a flat line sits where it should.
-                let floorValue = model.state.isMmol ? 3.5 : 63.0
-                let ceilValue = model.state.isMmol ? 10.0 : 180.0
-                let lo = min(values.min() ?? floorValue, floorValue)
-                let hi = max(values.max() ?? ceilValue, ceilValue)
-                let span = max(hi - lo, model.state.isMmol ? 1 : 18)
+                let size = geo.size
                 let inset: CGFloat = 3
-
                 let x: (TimeInterval) -> CGFloat = { t in
                     inset + CGFloat((t - start) / (end - start)) * (size.width - inset * 2)
                 }
                 let y: (Double) -> CGFloat = { v in
-                    inset + CGFloat(1 - (v - lo) / span) * (size.height - inset * 2)
+                    let fraction = (v - range.lowerBound) / (range.upperBound - range.lowerBound)
+                    return inset + CGFloat(1 - fraction) * (size.height - inset * 2)
                 }
+                let bandTop = y(band.upperBound)
+                let bandBottom = y(band.lowerBound)
 
-                // Faint band marking the in-range zone.
-                let bandTop = y(ceilValue)
-                let bandBottom = y(floorValue)
                 Rectangle()
                     .fill(Color.primary.opacity(model.fullColor ? 0.12 : 0.2))
                     .frame(width: size.width, height: max(1, bandBottom - bandTop))
@@ -488,11 +469,11 @@ struct ComplicationSparkline: View {
                         if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
                     }
                 }
-                .stroke(lineColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .stroke(model.glucoseColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
 
                 if let last = points.last {
                     Circle()
-                        .fill(lineColor)
+                        .fill(model.glucoseColor)
                         .frame(width: 4, height: 4)
                         .position(x: x(last.t), y: y(last.v))
                 }
@@ -500,7 +481,7 @@ struct ComplicationSparkline: View {
                 Text("no data")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .frame(width: size.width, height: size.height)
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
         }
     }
@@ -515,11 +496,8 @@ struct ComplicationPreview: View {
     let slot: ComplicationSlot
     let state: ComplicationState
 
-    private var model: ComplicationModel {
-        ComplicationModel(kind: kind, state: state, referenceDate: state.date, isPlaceholder: false, fullColor: true)
-    }
-
     var body: some View {
+        let model = ComplicationModel(kind: kind, state: state, referenceDate: state.date)
         switch slot {
         case .circular:
             ZStack {

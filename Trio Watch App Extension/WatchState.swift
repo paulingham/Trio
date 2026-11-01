@@ -52,8 +52,8 @@ import WidgetKit
     var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
     var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
-    /// "mg/dL" or "mmol/L" as sent by the phone. Empty until the first payload.
-    var glucoseUnits: String = ""
+    /// "mg/dL" or "mmol/L" as sent by the phone.
+    var glucoseUnits: String = "mg/dL"
 
     // Forecast options
     var showForecast: Bool = false
@@ -518,11 +518,11 @@ import WidgetKit
         }
 
         if let raw = message[WatchMessageKeys.complicationCornerValue] as? String {
-            complicationCornerValue = WatchComplicationValue.from(raw, default: WatchComplicationDefaults.cornerValue)
+            complicationCornerValue = WatchComplicationValue(rawValue: raw) ?? WatchComplicationDefaults.cornerValue
         }
 
         if let raw = message[WatchMessageKeys.complicationSecondaryValue] as? String {
-            complicationSecondaryValue = WatchComplicationValue.from(raw, default: WatchComplicationDefaults.secondaryValue)
+            complicationSecondaryValue = WatchComplicationValue(rawValue: raw) ?? WatchComplicationDefaults.secondaryValue
         }
 
         if let minutes = (message[WatchMessageKeys.complicationStaleMinutes] as? NSNumber)?.intValue {
@@ -573,13 +573,23 @@ import WidgetKit
             cornerValue: complicationCornerValue,
             secondaryValue: complicationSecondaryValue,
             staleMinutes: complicationStaleMinutes,
-            units: glucoseUnits.isEmpty ? nil : glucoseUnits,
+            units: glucoseUnits,
             glucoseValue: glucoseValues.last?.glucose,
             history: complicationHistory(until: readingDate)
         ))
         if changed {
-            for kind in ComplicationKind.allCases {
-                WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
+            reloadInstalledComplications()
+        }
+    }
+
+    /// Reloads only the Trio complications the user has put on a face, so the WidgetKit
+    /// refresh budget is not spent on kinds nobody is looking at.
+    private func reloadInstalledComplications() {
+        let dataKinds = Set(ComplicationKind.allCases.map(\.widgetKind))
+        WidgetCenter.shared.getCurrentConfigurations { result in
+            guard case let .success(installed) = result else { return }
+            for kind in Set(installed.map(\.kind)).intersection(dataKinds) {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind)
             }
         }
     }

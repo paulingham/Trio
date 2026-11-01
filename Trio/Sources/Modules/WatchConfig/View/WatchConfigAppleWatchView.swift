@@ -115,13 +115,14 @@ struct WatchConfigAppleWatchView: BaseView {
                     "Previews use sample data in your units and follow the settings above. Add them from the watch face editor under Trio. Corner slots curve the label round the face."
                 ),
                 content: {
+                    let preview = previewState
                     ForEach(ComplicationKind.allCases) { kind in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(kind.displayName).font(.headline)
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 10) {
                                     ForEach(previewSlots(for: kind), id: \.self) { slot in
-                                        ComplicationPreview(kind: kind, slot: slot, state: previewState)
+                                        ComplicationPreview(kind: kind, slot: slot, state: preview)
                                     }
                                 }
                                 .padding(.vertical, 2)
