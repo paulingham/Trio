@@ -38,22 +38,22 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         switch self {
         case .glucose:
             return String(
-                localized: "Glucose and trend, with the Small Line under it on circular slots and the Corner Label on corners.",
+                localized: "Glucose and trend. Small Line sits under the glucose on circular slots, Corner Label on corner slots.",
                 comment: "Description of the glucose watch complication"
             )
         case .gauge:
             return String(
-                localized: "Glucose inside a ring that fills from low to high.",
+                localized: "Glucose inside a ring that fills from low to high. Rectangular slots add the Small Line, IOB and COB.",
                 comment: "Description of the glucose ring watch complication"
             )
         case .iob:
             return String(
-                localized: "Insulin on board first, with COB and glucose alongside.",
+                localized: "Insulin on board first, with COB and glucose alongside. Fixed layout; only Grey Out After applies.",
                 comment: "Description of the insulin on board watch complication"
             )
         case .chart:
             return String(
-                localized: "Glucose, delta and IOB next to the last three hours of readings. Rectangular slots only.",
+                localized: "Glucose, the Small Line and IOB next to the last three hours of readings. Rectangular slots only.",
                 comment: "Description of the glucose chart watch complication"
             )
         }
@@ -341,16 +341,11 @@ struct ComplicationRectangularContent: View {
             .tint(model.gaugeGradient)
             .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(model.trendArrow)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(model.glucoseColor)
-                    Text(model.isStale ? model.ageText : model.state.delta)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(model.isStale ? .gray : .primary)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                Text(model.secondaryText)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(model.isStale ? .gray : .primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text("IOB \(model.iobText)")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(model.isStale ? .gray : .primary)
@@ -407,10 +402,10 @@ struct ComplicationRectangularContent: View {
                 Text(model.glucoseWithArrow)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundStyle(model.glucoseColor)
-                Text(model.isStale ? model.ageText : model.state.delta)
+                Text(model.secondaryText)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(model.dimColor)
-                Text("IOB \(model.state.iob)")
+                Text(model.state.resolvedSecondaryValue == .iob ? "COB \(model.state.cob)" : "IOB \(model.state.iob)")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(model.isStale ? .gray : .primary)
             }
@@ -541,12 +536,19 @@ struct ComplicationPreview: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
         case .corner:
             // Straight-line stand-in for the curved corner: main text with the label beneath.
-            VStack(spacing: 0) {
+            VStack(spacing: 2) {
                 ComplicationCornerMain(model: model)
-                ComplicationCornerLabel(model: model)
-                    .font(.system(size: 9, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
+                if kind == .gauge {
+                    Gauge(value: model.gaugeValue, in: state.gaugeRange) { EmptyView() }
+                        .gaugeStyle(.accessoryLinear)
+                        .tint(model.gaugeGradient)
+                        .frame(width: 56)
+                } else {
+                    ComplicationCornerLabel(model: model)
+                        .font(.system(size: 9, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                }
             }
             .padding(6)
             .frame(width: 80, height: 66)
