@@ -5,6 +5,7 @@ import WatchKit
 
 @main struct TrioWatchApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var state = WatchState()
 
     init() {
         WatchNotificationHandler.shared.configure()
@@ -13,7 +14,7 @@ import WatchKit
 
     var body: some Scene {
         WindowGroup {
-            TrioMainWatchView()
+            TrioMainWatchView(state: state)
         }
         .onChange(of: scenePhase) { _, newScenePhase in
             if newScenePhase == .background {
