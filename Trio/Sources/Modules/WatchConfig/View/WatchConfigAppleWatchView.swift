@@ -66,6 +66,9 @@ struct WatchConfigAppleWatchView: BaseView {
 
             Section(
                 header: Text("Complication"),
+                footer: Text(
+                    "The Trio Glucose complication always shows glucose and trend. Corner Label is the curved text on corner slots; Small Line is the text under the glucose on circular slots. Readings older than the grey-out time are shown greyed with their age."
+                ),
                 content: {
                     Picker("Corner Label", selection: $state.complicationCornerValue) {
                         ForEach(WatchComplicationValue.allCases) { value in
@@ -88,10 +91,7 @@ struct WatchConfigAppleWatchView: BaseView {
                             Text("\(state.complicationStaleMinutes) min").foregroundStyle(.secondary)
                         }
                     }
-                },
-                footer: Text(
-                    "The Trio Glucose complication always shows glucose and trend. Corner Label is the curved text on corner slots; Small Line is the text under the glucose on circular slots. Readings older than the grey-out time are shown greyed with their age."
-                )
+                }
             ).listRowBackground(Color.chart)
 
             Section(
