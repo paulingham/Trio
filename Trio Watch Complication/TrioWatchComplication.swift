@@ -24,24 +24,29 @@ struct TrioGlucoseProvider: TimelineProvider {
         completion(Self.currentEntry(at: Date()))
     }
 
-    /// One entry for now and, if the reading is still fresh, a second entry at the moment it
-    /// turns stale so the face greys it out without the app having to wake up. `.atEnd` then
-    /// asks WidgetKit for a fresh timeline; once the reading is already stale there is nothing
-    /// to schedule, so `.never` leaves it to the watch app, which reloads the timelines when
-    /// new data arrives from the phone.
+    /// Entries every five minutes for the next two hours so the age text keeps counting
+    /// without the extension being woken, plus one at the exact moment the reading turns
+    /// stale so the face greys it on time. `.atEnd` asks for a new timeline after that; the
+    /// watch app also reloads the timelines whenever new data arrives from the phone.
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioGlucoseEntry>) -> Void) {
         let now = Date()
         let current = Self.currentEntry(at: now)
-        var entries = [current]
-
-        let staleAt = current.state.date.addingTimeInterval(current.state.staleAfter + 1)
-        if !current.isPlaceholder, staleAt > now {
-            entries.append(TrioGlucoseEntry(date: staleAt, state: current.state, isPlaceholder: false))
-            completion(Timeline(entries: entries, policy: .atEnd))
-        } else {
-            completion(Timeline(entries: entries, policy: .never))
+        guard !current.isPlaceholder else {
+            completion(Timeline(entries: [current], policy: .never))
+            return
         }
+
+        var dates = stride(from: 0, through: Self.timelineSpan, by: Self.timelineStep).map { now.addingTimeInterval($0) }
+        let staleAt = current.state.date.addingTimeInterval(current.state.staleAfter + 1)
+        if staleAt > now, staleAt < now.addingTimeInterval(Self.timelineSpan) {
+            dates.append(staleAt)
+        }
+        let entries = dates.sorted().map { TrioGlucoseEntry(date: $0, state: current.state, isPlaceholder: false) }
+        completion(Timeline(entries: entries, policy: .atEnd))
     }
+
+    private static let timelineStep: TimeInterval = 5 * 60
+    private static let timelineSpan: TimeInterval = 2 * 60 * 60
 
     /// The stored snapshot, or a placeholder entry before the watch app has written one.
     private static func currentEntry(at date: Date) -> TrioGlucoseEntry {

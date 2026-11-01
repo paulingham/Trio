@@ -87,6 +87,9 @@ import Testing
     @Test("Placeholder has no reading and a neutral colour") func placeholder() {
         let state = ComplicationState.placeholder
         #expect(state.gaugeValue == nil)
+        let model = ComplicationModel(kind: .gauge, state: state, referenceDate: Date(), isPlaceholder: true)
+        #expect(model.gaugeValue == (45.0 + 290.0) / 2)
+        #expect(model.gaugeGradient == Gradient(colors: [.gray, .gray]))
         #expect(state.history.isEmpty)
         #expect(state.trendArrow == "")
         #expect(Color(complicationHex: "#4cd964") != nil)

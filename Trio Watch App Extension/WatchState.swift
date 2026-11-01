@@ -558,9 +558,14 @@ import WidgetKit
         // Runs for both delivery paths (foreground message and background userInfo) because
         // both end up here after the debounce. The snapshot is dated by the latest reading, not
         // by when the phone sent it, so Grey Out After tracks the CGM rather than the link.
-        let readingDate = glucoseValues.last?.date
-            ?? lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) }
-            ?? Date()
+        saveComplicationSnapshot()
+    }
+
+    private func saveComplicationSnapshot() {
+        // The phone sends an empty state when it cannot compute one (for example while the
+        // watch is unreachable); keep the last real snapshot rather than overwrite it with "--".
+        guard let latestReading = glucoseValues.last else { return }
+        let readingDate = latestReading.date
         let changed = ComplicationStore.save(ComplicationState(
             date: readingDate,
             glucose: currentGlucose,
@@ -574,7 +579,7 @@ import WidgetKit
             secondaryValue: complicationSecondaryValue,
             staleMinutes: complicationStaleMinutes,
             units: glucoseUnits,
-            glucoseValue: glucoseValues.last?.glucose,
+            glucoseValue: latestReading.glucose,
             history: complicationHistory(until: readingDate)
         ))
         if changed {

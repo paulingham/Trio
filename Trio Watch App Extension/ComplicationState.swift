@@ -184,13 +184,27 @@ struct ComplicationState: Codable, Equatable {
 enum ComplicationStore {
     static let key = "ComplicationState.latest"
 
-    /// The shared container. Both watch targets set `INFOPLIST_KEY_AppGroupID = $(APP_GROUP_ID)`,
-    /// which is `TRIO_APP_GROUP_ID` from `Config.xcconfig` and matches their entitlements.
-    static let defaults: UserDefaults? = {
-        guard let id = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String, !id.isEmpty
+    /// The App Group identifier shared by the watch app and the complication extension.
+    ///
+    /// Read from the `AppGroupID` Info.plist key when the build puts it there. The watch targets
+    /// use generated Info.plists and the key has been seen missing from them, so the identifier
+    /// is otherwise derived from the bundle identifier:
+    /// `org.nightscout.<TEAM>.trio.watchkitapp[.TrioWatchComplication]` →
+    /// `group.org.nightscout.<TEAM>.trio.trio-app-group`, which is `TRIO_APP_GROUP_ID` in
+    /// `Config.xcconfig` and what the entitlements use.
+    static var appGroupID: String? {
+        if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String,
+           !fromPlist.isEmpty, !fromPlist.hasPrefix("$(")
+        {
+            return fromPlist
+        }
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              let range = bundleID.range(of: ".watchkitapp")
         else { return nil }
-        return UserDefaults(suiteName: id)
-    }()
+        return "group.\(bundleID[..<range.lowerBound]).trio-app-group"
+    }
+
+    static let defaults: UserDefaults? = appGroupID.flatMap { UserDefaults(suiteName: $0) }
 
     private static var lastSaved: ComplicationState?
 

@@ -138,11 +138,15 @@ struct ComplicationModel {
         isStale ? ageText : state.text(for: state.cornerValue, labelled: true)
     }
 
-    var gaugeValue: Double { state.gaugeValue ?? state.gaugeRange.lowerBound }
+    /// Ring position. With no reading the ring sits in the middle, in grey, rather than at the
+    /// low end where it would look like a hypo.
+    var gaugeValue: Double {
+        state.gaugeValue ?? (state.gaugeRange.lowerBound + state.gaugeRange.upperBound) / 2
+    }
 
     /// Red for lows, green through the middle, amber then red for highs.
     var gaugeGradient: Gradient {
-        if isStale || !fullColor {
+        if isStale || !fullColor || state.gaugeValue == nil {
             return Gradient(colors: [.gray, .gray])
         }
         return Gradient(stops: [
