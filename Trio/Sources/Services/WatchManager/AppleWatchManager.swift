@@ -541,14 +541,21 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
             WatchMessageKeys.complicationCornerValue: state.complicationCornerValue.rawValue,
             WatchMessageKeys.complicationSecondaryValue: state.complicationSecondaryValue.rawValue,
             WatchMessageKeys.complicationStaleMinutes: state.complicationStaleMinutes,
-            WatchMessageKeys.lastLoopDate: state.lastLoopDate?.timeIntervalSince1970 ?? 0,
-            WatchMessageKeys.lowGlucoseLimit: state.lowGlucoseLimit ?? 0,
-            WatchMessageKeys.highGlucoseLimit: state.highGlucoseLimit ?? 0,
             WatchMessageKeys.units: state.units.rawValue,
             WatchMessageKeys.showForecastWatch: state.showForecast,
             WatchMessageKeys.isForecastCone: state.isForecastCone,
             WatchMessageKeys.snoozeUntilDate: state.snoozeUntilDate.timeIntervalSince1970
         ]
+
+        if let lastLoopDate = state.lastLoopDate {
+            dictionary[WatchMessageKeys.lastLoopDate] = lastLoopDate.timeIntervalSince1970
+        }
+        if let lowGlucoseLimit = state.lowGlucoseLimit {
+            dictionary[WatchMessageKeys.lowGlucoseLimit] = lowGlucoseLimit
+        }
+        if let highGlucoseLimit = state.highGlucoseLimit {
+            dictionary[WatchMessageKeys.highGlucoseLimit] = highGlucoseLimit
+        }
 
         var forecastData: [String: Any] = [
             WatchMessageKeys.forecastConeMin: state.forecastConeMin,
@@ -601,6 +608,9 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 warning(.watch, "Sending watch state failed", error: error)
             }
         } else {
+            session.outstandingUserInfoTransfers
+                .filter { $0.userInfo[WatchMessageKeys.watchState] != nil }
+                .forEach { $0.cancel() }
             session.transferUserInfo([WatchMessageKeys.watchState: message])
             debug(.watch, "Watch state queued for background transfer")
         }

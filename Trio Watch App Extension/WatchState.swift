@@ -51,7 +51,7 @@ import WidgetKit
     var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
     var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
-    var glucoseUnits: String = "mg/dL"
+    var glucoseUnits: String = ComplicationState.defaultUnits
     var lastLoopDate: Date?
     var lowGlucoseLimit: Double?
     var highGlucoseLimit: Double?
@@ -89,6 +89,8 @@ import WidgetKit
 
     /// Temporary storage for new data arriving via WatchConnectivity.
     private var pendingData: [String: Any] = [:]
+    private var lastSavedComplicationState: ComplicationState?
+    private static let maxComplicationHistoryPoints = 40.0
 
     /// Work item to schedule finalizing the pending data.
     private var finalizeWorkItem: DispatchWorkItem?
@@ -534,15 +536,15 @@ import WidgetKit
             glucoseUnits = units
         }
 
-        if let loopTimestamp = (message[WatchMessageKeys.lastLoopDate] as? NSNumber)?.doubleValue, loopTimestamp > 0 {
+        if let loopTimestamp = (message[WatchMessageKeys.lastLoopDate] as? NSNumber)?.doubleValue {
             lastLoopDate = Date(timeIntervalSince1970: loopTimestamp)
         }
 
-        if let low = (message[WatchMessageKeys.lowGlucoseLimit] as? NSNumber)?.doubleValue, low > 0 {
+        if let low = (message[WatchMessageKeys.lowGlucoseLimit] as? NSNumber)?.doubleValue {
             lowGlucoseLimit = low
         }
 
-        if let high = (message[WatchMessageKeys.highGlucoseLimit] as? NSNumber)?.doubleValue, high > 0 {
+        if let high = (message[WatchMessageKeys.highGlucoseLimit] as? NSNumber)?.doubleValue {
             highGlucoseLimit = high
         }
 
@@ -572,29 +574,41 @@ import WidgetKit
 
     private func saveComplicationSnapshot() {
         guard let latestReading = glucoseValues.last else { return }
-        let readingDate = latestReading.date
-        let changed = ComplicationStore.save(ComplicationState(
+        let snapshot = complicationSnapshot(readingDate: latestReading.date, glucoseValue: latestReading.glucose)
+        guard snapshot != lastSavedComplicationState else { return }
+        do {
+            try ComplicationStore.save(snapshot)
+            lastSavedComplicationState = snapshot
+            reloadInstalledComplications()
+        } catch {
+            Task { await WatchLogger.shared.log("⌚️ Complication snapshot not saved: \(error)", force: true) }
+        }
+    }
+
+    private func complicationSnapshot(readingDate: Date, glucoseValue: Double) -> ComplicationState {
+        ComplicationState(
             date: readingDate,
             glucose: currentGlucose,
             glucoseColorHex: currentGlucoseColorString,
             trend: trend ?? "",
-            delta: delta ?? "--",
-            iob: iob ?? "--",
-            cob: cob ?? "--",
-            lastLoopTime: lastLoopTime ?? "--",
+            delta: delta ?? ComplicationState.missingValue,
+            iob: iob ?? ComplicationState.missingValue,
+            cob: cob ?? ComplicationState.missingValue,
+            lastLoopTime: lastLoopTime ?? ComplicationState.missingValue,
             cornerValue: complicationCornerValue,
             secondaryValue: complicationSecondaryValue,
             staleMinutes: complicationStaleMinutes,
             units: glucoseUnits,
-            glucoseValue: latestReading.glucose,
+            glucoseValue: glucoseValue,
             history: complicationHistory(until: readingDate),
             loopDate: lastLoopDate,
-            lowLimit: lowGlucoseLimit,
-            highLimit: highGlucoseLimit
-        ))
-        if changed {
-            reloadInstalledComplications()
-        }
+            limits: complicationLimits
+        )
+    }
+
+    private var complicationLimits: ClosedRange<Double>? {
+        guard let low = lowGlucoseLimit, let high = highGlucoseLimit, low < high else { return nil }
+        return low ... high
     }
 
     private func reloadInstalledComplications() {
@@ -610,9 +624,9 @@ import WidgetKit
     private func complicationHistory(until end: Date) -> [ComplicationPoint] {
         let from = end.addingTimeInterval(-ComplicationState.chartWindow)
         let recent = glucoseValues.filter { $0.date >= from }
-        let step = max(1, Int((Double(recent.count) / 40.0).rounded(.up)))
+        let step = max(1, Int((Double(recent.count) / Self.maxComplicationHistoryPoints).rounded(.up)))
         return recent.enumerated()
             .filter { $0.offset % step == 0 || $0.offset == recent.count - 1 }
-            .map { ComplicationPoint(t: $0.element.date.timeIntervalSince1970, v: $0.element.glucose) }
+            .map { ComplicationPoint(timestamp: $0.element.date.timeIntervalSince1970, glucose: $0.element.glucose) }
     }
 }

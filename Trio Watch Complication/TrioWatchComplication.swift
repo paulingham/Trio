@@ -1,20 +1,42 @@
 import SwiftUI
 import WidgetKit
 
+enum ComplicationContent {
+    case reading(ComplicationState)
+    case placeholder(ComplicationState)
+
+    var state: ComplicationState {
+        switch self {
+        case let .placeholder(state),
+             let .reading(state):
+            return state
+        }
+    }
+
+    var isPlaceholder: Bool {
+        switch self {
+        case .reading: return false
+        case .placeholder: return true
+        }
+    }
+}
+
 struct TrioGlucoseEntry: TimelineEntry {
     let date: Date
-    let state: ComplicationState
-    let isPlaceholder: Bool
+    let content: ComplicationContent
 }
 
 struct TrioGlucoseProvider: TimelineProvider {
+    private static let timelineStep: TimeInterval = 5 * 60
+    private static let timelineSpan: TimeInterval = 2 * 60 * 60
+
     func placeholder(in _: Context) -> TrioGlucoseEntry {
-        TrioGlucoseEntry(date: Date(), state: .placeholder, isPlaceholder: true)
+        TrioGlucoseEntry(date: Date(), content: .placeholder(.placeholder))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (TrioGlucoseEntry) -> Void) {
         if context.isPreview {
-            completion(TrioGlucoseEntry(date: Date(), state: Self.preview, isPlaceholder: true))
+            completion(TrioGlucoseEntry(date: Date(), content: .placeholder(Self.preview)))
             return
         }
         completion(Self.currentEntry(at: Date()))
@@ -23,32 +45,29 @@ struct TrioGlucoseProvider: TimelineProvider {
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioGlucoseEntry>) -> Void) {
         let now = Date()
         let current = Self.currentEntry(at: now)
-        guard !current.isPlaceholder else {
+        guard !current.content.isPlaceholder else {
             completion(Timeline(entries: [current], policy: .never))
             return
         }
 
         var dates = stride(from: 0, through: Self.timelineSpan, by: Self.timelineStep).map { now.addingTimeInterval($0) }
-        let staleAt = current.state.date.addingTimeInterval(current.state.staleAfter + 1)
+        let staleAt = current.content.state.date.addingTimeInterval(current.content.state.staleAfter + 1)
         if staleAt > now, staleAt < now.addingTimeInterval(Self.timelineSpan) {
             dates.append(staleAt)
         }
-        let entries = dates.sorted().map { TrioGlucoseEntry(date: $0, state: current.state, isPlaceholder: false) }
+        let entries = dates.sorted().map { TrioGlucoseEntry(date: $0, content: current.content) }
         completion(Timeline(entries: entries, policy: .atEnd))
     }
 
-    private static let timelineStep: TimeInterval = 5 * 60
-    private static let timelineSpan: TimeInterval = 2 * 60 * 60
-
     private static func currentEntry(at date: Date) -> TrioGlucoseEntry {
         if let state = ComplicationStore.load() {
-            return TrioGlucoseEntry(date: date, state: state, isPlaceholder: false)
+            return TrioGlucoseEntry(date: date, content: .reading(state))
         }
-        return TrioGlucoseEntry(date: date, state: .placeholder, isPlaceholder: true)
+        return TrioGlucoseEntry(date: date, content: .placeholder(.placeholder))
     }
 
     static var preview: ComplicationState {
-        let units = ComplicationStore.load()?.units ?? "mg/dL"
+        let units = ComplicationStore.load()?.units ?? ComplicationState.defaultUnits
         return ComplicationState.sample(units: units)
     }
 }
@@ -63,10 +82,12 @@ struct TrioComplicationEntryView: View {
     var body: some View {
         let model = ComplicationModel(
             kind: kind,
-            state: entry.state,
-            referenceDate: entry.date,
-            isPlaceholder: entry.isPlaceholder,
-            fullColor: renderingMode == .fullColor
+            state: entry.content.state,
+            rendering: ComplicationRendering(
+                referenceDate: entry.date,
+                isPlaceholder: entry.content.isPlaceholder,
+                fullColor: renderingMode == .fullColor
+            )
         )
         switch family {
         case .accessoryRectangular:
@@ -140,9 +161,13 @@ struct TrioChartComplication: Widget {
     var body: some WidgetConfiguration { complicationConfiguration(for: .chart) }
 }
 
+// MARK: - Timeline Entry
+
 struct TrioWatchComplicationEntry: TimelineEntry {
     let date: Date
 }
+
+// MARK: - Provider
 
 struct TrioWatchComplicationProvider: TimelineProvider {
     func placeholder(in _: Context) -> TrioWatchComplicationEntry {
@@ -150,14 +175,20 @@ struct TrioWatchComplicationProvider: TimelineProvider {
     }
 
     func getSnapshot(in _: Context, completion: @escaping (TrioWatchComplicationEntry) -> Void) {
-        completion(TrioWatchComplicationEntry(date: Date()))
+        let entry = TrioWatchComplicationEntry(date: Date())
+        completion(entry)
     }
 
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioWatchComplicationEntry>) -> Void) {
-        completion(Timeline(entries: [TrioWatchComplicationEntry(date: Date())], policy: .never))
+        let entry = TrioWatchComplicationEntry(date: Date())
+        let timeline = Timeline(entries: [entry], policy: .never)
+        completion(timeline)
     }
 }
 
+// MARK: - Views
+
+//// Displayed View Wrapper
 struct TrioWatchComplicationEntryView: View {
     @Environment(\.widgetFamily) private var widgetFamily
 
@@ -206,6 +237,8 @@ struct TrioAccessoryCircularView: View {
             .widgetBackground(backgroundView: Color.clear)
     }
 }
+
+// MARK: - Widget Configuration
 
 struct TrioWatchComplication: Widget {
     let kind: String = "TrioWatchComplication"

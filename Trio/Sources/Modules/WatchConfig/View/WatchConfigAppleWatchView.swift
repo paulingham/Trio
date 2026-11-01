@@ -23,9 +23,11 @@ struct WatchConfigAppleWatchView: BaseView {
     private var previewState: ComplicationState {
         ComplicationState.sample(
             units: state.units.rawValue,
-            cornerValue: state.complicationCornerValue,
-            secondaryValue: state.complicationSecondaryValue,
-            staleMinutes: state.complicationStaleMinutes
+            settings: ComplicationSlotSettings(
+                cornerValue: state.complicationCornerValue,
+                secondaryValue: state.complicationSecondaryValue,
+                staleMinutes: state.complicationStaleMinutes
+            )
         )
     }
 

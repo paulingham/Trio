@@ -1,9 +1,21 @@
 import Foundation
+import os
 import SwiftUI
 
 struct ComplicationPoint: Codable, Equatable {
-    var t: TimeInterval
-    var v: Double
+    var timestamp: TimeInterval
+    var glucose: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case timestamp = "t"
+        case glucose = "v"
+    }
+}
+
+struct ComplicationSlotSettings {
+    var cornerValue = WatchComplicationDefaults.cornerValue
+    var secondaryValue = WatchComplicationDefaults.secondaryValue
+    var staleMinutes = WatchComplicationDefaults.staleMinutes
 }
 
 struct ComplicationState: Codable, Equatable {
@@ -24,45 +36,46 @@ struct ComplicationState: Codable, Equatable {
     var glucoseValue: Double?
     var history: [ComplicationPoint]
     var loopDate: Date?
-    var lowLimit: Double?
-    var highLimit: Double?
+    var limits: ClosedRange<Double>?
+
+    static let missingValue = "--"
+    static let defaultUnits = "mg/dL"
+
+    private static let mgPerDlPerMmol = 18.0182
+    private static let sampleReadingSpacing: TimeInterval = 5 * 60
+    private static let maxLoopAgeMinutes = 1440
+    private static let sampleMmolCurve: [Double] = [
+        8.9, 8.6, 8.3, 8.0, 7.7, 7.4, 7.1, 6.9, 6.7, 6.5, 6.3, 6.1,
+        6.0, 5.9, 5.8, 5.8, 5.7, 5.7, 5.8, 5.9, 6.1, 6.3, 6.6, 6.9,
+        7.1, 7.2, 7.2, 7.1, 7.0, 6.9, 6.8, 6.7, 6.6, 6.5, 6.4, 6.4
+    ]
 
     static let placeholder = ComplicationState(
         date: .distantPast,
-        glucose: "--",
+        glucose: missingValue,
         glucoseColorHex: "#ffffff",
         trend: "",
-        delta: "--",
-        iob: "--",
-        cob: "--",
-        lastLoopTime: "--",
+        delta: missingValue,
+        iob: missingValue,
+        cob: missingValue,
+        lastLoopTime: missingValue,
         cornerValue: WatchComplicationDefaults.cornerValue,
         secondaryValue: WatchComplicationDefaults.secondaryValue,
         staleMinutes: WatchComplicationDefaults.staleMinutes,
-        units: "mg/dL",
+        units: defaultUnits,
         glucoseValue: nil,
         history: [],
         loopDate: nil,
-        lowLimit: nil,
-        highLimit: nil
+        limits: nil
     )
 
     static func sample(
         units: String,
-        cornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue,
-        secondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue,
-        staleMinutes: Int = WatchComplicationDefaults.staleMinutes,
+        settings: ComplicationSlotSettings = ComplicationSlotSettings(),
         date: Date = Date()
     ) -> ComplicationState {
         let mmol = Self.isMmol(units)
-        let mmolCurve: [Double] = [
-            8.9, 8.6, 8.3, 8.0, 7.7, 7.4, 7.1, 6.9, 6.7, 6.5, 6.3, 6.1,
-            6.0, 5.9, 5.8, 5.8, 5.7, 5.7, 5.8, 5.9, 6.1, 6.3, 6.6, 6.9,
-            7.1, 7.2, 7.2, 7.1, 7.0, 6.9, 6.8, 6.7, 6.6, 6.5, 6.4, 6.4
-        ]
-        let curve = mmol ? mmolCurve : mmolCurve.map { ($0 * 18.0182).rounded() }
-        let start = date.timeIntervalSince1970 - TimeInterval(curve.count - 1) * 300
-        let history = curve.enumerated().map { ComplicationPoint(t: start + TimeInterval($0.offset) * 300, v: $0.element) }
+        let history = sampleHistory(isMmol: mmol, endingAt: date)
         return ComplicationState(
             date: date,
             glucose: mmol ? "6.4" : "115",
@@ -72,16 +85,27 @@ struct ComplicationState: Codable, Equatable {
             iob: "1.25",
             cob: "12",
             lastLoopTime: "2 min",
-            cornerValue: cornerValue,
-            secondaryValue: secondaryValue,
-            staleMinutes: staleMinutes,
+            cornerValue: settings.cornerValue,
+            secondaryValue: settings.secondaryValue,
+            staleMinutes: settings.staleMinutes,
             units: units,
-            glucoseValue: curve.last,
+            glucoseValue: history.last?.glucose,
             history: history,
             loopDate: date.addingTimeInterval(-2 * 60),
-            lowLimit: mmol ? 3.9 : 70,
-            highLimit: mmol ? 10.0 : 180
+            limits: typicalBand(isMmol: mmol)
         )
+    }
+
+    private static func sampleHistory(isMmol: Bool, endingAt date: Date) -> [ComplicationPoint] {
+        let curve = isMmol ? sampleMmolCurve : sampleMmolCurve.map { ($0 * mgPerDlPerMmol).rounded() }
+        let start = date.timeIntervalSince1970 - TimeInterval(curve.count - 1) * sampleReadingSpacing
+        return curve.enumerated().map { index, glucose in
+            ComplicationPoint(timestamp: start + TimeInterval(index) * sampleReadingSpacing, glucose: glucose)
+        }
+    }
+
+    private static func typicalBand(isMmol: Bool) -> ClosedRange<Double> {
+        isMmol ? 3.9 ... 10.0 : 70 ... 180
     }
 
     static let chartWindow: TimeInterval = 3 * 60 * 60
@@ -99,10 +123,7 @@ struct ComplicationState: Codable, Equatable {
     }
 
     var inRangeBand: ClosedRange<Double> {
-        if let low = lowLimit, let high = highLimit, low < high {
-            return low ... high
-        }
-        return isMmol ? 3.9 ... 10.0 : 70 ... 180
+        limits ?? Self.typicalBand(isMmol: isMmol)
     }
 
     var chartMinimumSpan: Double {
@@ -129,8 +150,6 @@ struct ComplicationState: Codable, Equatable {
         }
     }
 
-    private static let maxLoopAgeMinutes = 1440
-
     func isStale(at reference: Date) -> Bool {
         reference.timeIntervalSince(date) > staleAfter
     }
@@ -143,21 +162,35 @@ struct ComplicationState: Codable, Equatable {
     func loopAgeText(at reference: Date) -> String {
         guard let loopDate = loopDate else { return lastLoopTime }
         let minutes = max(0, Int(reference.timeIntervalSince(loopDate) / 60))
-        return minutes > Self.maxLoopAgeMinutes ? "--" : "\(minutes) min"
+        return minutes > Self.maxLoopAgeMinutes ? Self.missingValue : "\(minutes) min"
     }
 
     func minutesAgo(at reference: Date) -> Int {
         max(0, Int(reference.timeIntervalSince(date) / 60))
     }
 
-    func text(for value: WatchComplicationValue, labelled: Bool) -> String {
+    func labelledText(for value: WatchComplicationValue) -> String {
         switch value {
         case .nothing: return ""
-        case .iob: return labelled ? "IOB \(iob)" : iob
-        case .cob: return labelled ? "COB \(cob)" : cob
-        case .delta: return "\(trendArrow) \(delta)".trimmingCharacters(in: .whitespaces)
-        case .loopAge: return labelled ? "Loop \(lastLoopTime)" : lastLoopTime
+        case .iob: return "IOB \(iob)"
+        case .cob: return "COB \(cob)"
+        case .delta: return deltaText
+        case .loopAge: return "Loop \(lastLoopTime)"
         }
+    }
+
+    func plainText(for value: WatchComplicationValue) -> String {
+        switch value {
+        case .nothing: return ""
+        case .iob: return iob
+        case .cob: return cob
+        case .delta: return deltaText
+        case .loopAge: return lastLoopTime
+        }
+    }
+
+    private var deltaText: String {
+        "\(trendArrow) \(delta)".trimmingCharacters(in: .whitespaces)
     }
 
     var glucoseColor: Color {
@@ -165,8 +198,15 @@ struct ComplicationState: Codable, Equatable {
     }
 }
 
+enum ComplicationStoreError: Error {
+    case noAppGroup
+}
+
 enum ComplicationStore {
     static let key = "ComplicationState.latest"
+
+    private static let watchBundleMarker = ".watchkitapp"
+    private static let logger = os.Logger(subsystem: "org.nightscout.trio", category: "ComplicationStore")
 
     static var appGroupID: String? {
         if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String,
@@ -175,36 +215,34 @@ enum ComplicationStore {
             return fromPlist
         }
         guard let bundleID = Bundle.main.bundleIdentifier,
-              let range = bundleID.range(of: ".watchkitapp")
+              let range = bundleID.range(of: watchBundleMarker)
         else { return nil }
         return "group.\(bundleID[..<range.lowerBound]).trio-app-group"
     }
 
     static let defaults: UserDefaults? = appGroupID.flatMap { UserDefaults(suiteName: $0) }
 
-    private static var lastSaved: ComplicationState?
-
-    @discardableResult static func save(_ state: ComplicationState) -> Bool {
-        guard state != lastSaved,
-              let defaults = defaults,
-              let data = try? JSONEncoder().encode(state)
-        else { return false }
-        defaults.set(data, forKey: key)
-        lastSaved = state
-        return true
+    static func save(_ state: ComplicationState) throws {
+        guard let defaults = defaults else { throw ComplicationStoreError.noAppGroup }
+        defaults.set(try JSONEncoder().encode(state), forKey: key)
     }
 
     static func load() -> ComplicationState? {
         guard let data = defaults?.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(ComplicationState.self, from: data)
+        do {
+            return try JSONDecoder().decode(ComplicationState.self, from: data)
+        } catch {
+            logger.error("Complication snapshot unreadable: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }
 
 extension Color {
     init?(complicationHex hex: String) {
-        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let value = UInt64(s, radix: 16) else { return nil }
+        var digits = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if digits.hasPrefix("#") { digits.removeFirst() }
+        guard digits.count == 6, let value = UInt64(digits, radix: 16) else { return nil }
         self.init(
             red: Double((value >> 16) & 0xFF) / 255,
             green: Double((value >> 8) & 0xFF) / 255,

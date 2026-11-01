@@ -68,100 +68,104 @@ enum ComplicationSlot {
     case inline
 }
 
+struct ComplicationRendering {
+    var referenceDate: Date
+    var isPlaceholder = false
+    var fullColor = true
+}
+
 struct ComplicationModel {
+    private static let highWarningSpan = 0.15
+
     let kind: ComplicationKind
-    let state: ComplicationState
+    let displayedState: ComplicationState
     let isStale: Bool
+    let isLoopStale: Bool
+    let isLoopUnknown: Bool
     let isPlaceholder: Bool
     let referenceDate: Date
     let fullColor: Bool
 
-    init(
-        kind: ComplicationKind,
-        state: ComplicationState,
-        referenceDate: Date,
-        isPlaceholder: Bool = false,
-        fullColor: Bool = true
-    ) {
-        let isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
+    init(kind: ComplicationKind, state: ComplicationState, rendering: ComplicationRendering) {
+        self.kind = kind
+        referenceDate = rendering.referenceDate
+        isPlaceholder = rendering.isPlaceholder
+        fullColor = rendering.fullColor
+        isStale = !isPlaceholder && state.isStale(at: referenceDate)
+        isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
+        isLoopUnknown = !isPlaceholder && state.loopDate == nil
         var shown = state
         shown.lastLoopTime = state.loopAgeText(at: referenceDate)
         if isLoopStale {
-            shown.iob = "--"
-            shown.cob = "--"
+            shown.iob = ComplicationState.missingValue
+            shown.cob = ComplicationState.missingValue
         }
-        self.kind = kind
-        self.state = shown
-        self.referenceDate = referenceDate
-        self.isPlaceholder = isPlaceholder
-        self.fullColor = fullColor
-        isStale = !isPlaceholder && state.isStale(at: referenceDate)
-        self.isLoopStale = isLoopStale
-        isLoopUnknown = !isPlaceholder && state.loopDate == nil
+        displayedState = shown
     }
-
-    let isLoopStale: Bool
-    let isLoopUnknown: Bool
 
     var glucoseColor: Color {
         if isStale { return .gray }
-        return fullColor ? state.glucoseColor : .primary
+        return fullColor ? displayedState.glucoseColor : .primary
     }
 
     var valueColor: Color { isStale || isLoopStale || isLoopUnknown ? .gray : .primary }
 
-    var iobStatusText: String {
+    var statusLine: String {
         if isStale { return ageText }
-        if isLoopStale { return "loop \(state.lastLoopTime)" }
-        return "COB \(state.cob)"
+        if isLoopStale { return "loop \(displayedState.lastLoopTime)" }
+        return "COB \(displayedState.cob)"
     }
 
     var dimColor: Color { isStale ? .gray : .secondary }
 
-    var trendArrow: String { isStale ? "" : state.trendArrow }
+    var trendArrow: String { isStale ? "" : displayedState.trendArrow }
 
     var glucoseWithArrow: String {
-        trendArrow.isEmpty ? state.glucose : "\(state.glucose)\(trendArrow)"
+        trendArrow.isEmpty ? displayedState.glucose : "\(displayedState.glucose)\(trendArrow)"
     }
 
     var ageText: String {
-        if isPlaceholder { return "-- min" }
-        return "\(state.minutesAgo(at: referenceDate)) min"
+        if isPlaceholder { return "\(ComplicationState.missingValue) min" }
+        return "\(displayedState.minutesAgo(at: referenceDate)) min"
     }
 
-    var iobText: String { state.iob == "--" ? "--" : "\(state.iob) U" }
-    var cobText: String { state.cob == "--" ? "--" : "\(state.cob) g" }
+    var iobText: String { displayedState.iob == ComplicationState.missingValue ? displayedState.iob : "\(displayedState.iob) U" }
+    var cobText: String { displayedState.cob == ComplicationState.missingValue ? displayedState.cob : "\(displayedState.cob) g" }
 
     var secondaryText: String {
-        isStale ? ageText : state.text(for: state.secondaryValue, labelled: false)
+        isStale ? ageText : displayedState.plainText(for: displayedState.secondaryValue)
     }
 
     var cornerText: String {
-        isStale ? ageText : state.text(for: state.cornerValue, labelled: true)
+        isStale ? ageText : displayedState.labelledText(for: displayedState.cornerValue)
     }
 
     var gaugeValue: Double {
-        state.gaugeValue ?? (state.gaugeRange.lowerBound + state.gaugeRange.upperBound) / 2
+        displayedState.gaugeValue ?? (displayedState.gaugeRange.lowerBound + displayedState.gaugeRange.upperBound) / 2
     }
 
     var gaugeGradient: Gradient {
-        if isStale || !fullColor || state.gaugeValue == nil {
+        if isStale || !fullColor || displayedState.gaugeValue == nil {
             return Gradient(colors: [.gray, .gray])
         }
-        let range = state.gaugeRange
+        return Gradient(stops: ringStops)
+    }
+
+    private var ringStops: [Gradient.Stop] {
+        let range = displayedState.gaugeRange
         let span = range.upperBound - range.lowerBound
         let fraction: (Double) -> Double = { value in
             min(max((value - range.lowerBound) / span, 0), 1)
         }
-        let low = fraction(state.inRangeBand.lowerBound)
-        let high = fraction(state.inRangeBand.upperBound)
-        return Gradient(stops: [
+        let low = fraction(displayedState.inRangeBand.lowerBound)
+        let high = fraction(displayedState.inRangeBand.upperBound)
+        return [
             .init(color: .red, location: 0),
             .init(color: .green, location: low),
             .init(color: .green, location: high),
-            .init(color: .orange, location: min(high + 0.15, 1)),
+            .init(color: .orange, location: min(high + Self.highWarningSpan, 1)),
             .init(color: .red, location: 1)
-        ])
+        ]
     }
 }
 
@@ -170,10 +174,10 @@ private struct GlucoseRingGauge: View {
     let fontSize: CGFloat
 
     var body: some View {
-        Gauge(value: model.gaugeValue, in: model.state.gaugeRange) {
+        Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
             Text("BG")
         } currentValueLabel: {
-            Text(model.state.glucose)
+            Text(model.displayedState.glucose)
                 .font(.system(size: fontSize, weight: .bold))
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(model.glucoseColor)
@@ -223,7 +227,7 @@ struct ComplicationCircularContent: View {
 
     private var glucose: some View {
         VStack(spacing: -2) {
-            Text(model.state.glucose)
+            Text(model.displayedState.glucose)
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             Text(model.secondaryText)
@@ -238,10 +242,10 @@ struct ComplicationCircularContent: View {
             Text("IOB")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(model.dimColor)
-            Text(model.state.iob)
+            Text(model.displayedState.iob)
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(model.valueColor)
-            Text(model.iobStatusText)
+            Text(model.statusLine)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(model.dimColor)
         }
@@ -253,7 +257,7 @@ struct ComplicationCornerMain: View {
     let model: ComplicationModel
 
     var body: some View {
-        Text(model.kind == .iob ? model.state.iob : model.glucoseWithArrow)
+        Text(model.kind == .iob ? model.displayedState.iob : model.glucoseWithArrow)
             .font(.system(size: 20, weight: .bold, design: .rounded))
             .minimumScaleFactor(0.6)
             .lineLimit(1)
@@ -267,19 +271,24 @@ struct ComplicationCornerLabel: View {
     var body: some View {
         switch model.kind {
         case .gauge:
-            Gauge(value: model.gaugeValue, in: model.state.gaugeRange) {
+            Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
                 Text("BG")
             } currentValueLabel: {
-                Text(model.state.glucose)
+                Text(model.displayedState.glucose)
             } minimumValueLabel: {
-                Text(model.state.gaugeRange.lowerBound, format: .number.precision(.fractionLength(0)))
+                Text(model.displayedState.gaugeRange.lowerBound, format: .number.precision(.fractionLength(0)))
             } maximumValueLabel: {
-                Text(model.state.gaugeRange.upperBound, format: .number.precision(.fractionLength(0)))
+                Text(model.displayedState.gaugeRange.upperBound, format: .number.precision(.fractionLength(0)))
             }
             .tint(model.gaugeGradient)
         case .iob:
-            Text(model.isStale || model.isLoopStale ? model.iobStatusText : "COB \(model.cobText) · \(model.state.glucose)")
-        default:
+            Text(
+                model.isStale || model.isLoopStale
+                    ? model.statusLine
+                    : "COB \(model.cobText) · \(model.displayedState.glucose)"
+            )
+        case .chart,
+             .glucose:
             Text(model.cornerText)
         }
     }
@@ -309,14 +318,14 @@ struct ComplicationRectangularContent: View {
 
     private var glucoseLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(model.state.glucose)
+            Text(model.displayedState.glucose)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(model.glucoseColor)
             if !model.isStale {
-                Text(model.state.trendArrow)
+                Text(model.displayedState.trendArrow)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(model.glucoseColor)
-                Text(model.state.delta)
+                Text(model.displayedState.delta)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -324,7 +333,7 @@ struct ComplicationRectangularContent: View {
     }
 
     private var ageLine: some View {
-        Text("\(model.ageText) ago · loop \(model.state.lastLoopTime)")
+        Text("\(model.ageText) ago · loop \(model.displayedState.lastLoopTime)")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
     }
@@ -368,9 +377,13 @@ struct ComplicationRectangularContent: View {
                 Text(model.glucoseWithArrow)
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(model.glucoseColor)
-                Text(model.isStale ? "\(model.ageText) ago" : "\(model.state.delta) · loop \(model.state.lastLoopTime)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(model.isLoopStale || model.isLoopUnknown ? Color.gray : Color.secondary)
+                Text(
+                    model.isStale
+                        ? "\(model.ageText) ago"
+                        : "\(model.displayedState.delta) · loop \(model.displayedState.lastLoopTime)"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(model.isLoopStale || model.isLoopUnknown ? Color.gray : Color.secondary)
             }
         }
     }
@@ -384,9 +397,13 @@ struct ComplicationRectangularContent: View {
                 Text(model.secondaryText)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(model.dimColor)
-                Text(model.state.secondaryValue == .iob ? "COB \(model.state.cob)" : "IOB \(model.state.iob)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(model.valueColor)
+                Text(
+                    model.displayedState.secondaryValue == .iob
+                        ? "COB \(model.displayedState.cob)"
+                        : "IOB \(model.displayedState.iob)"
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(model.valueColor)
             }
             .minimumScaleFactor(0.6)
             .fixedSize(horizontal: true, vertical: false)
@@ -409,72 +426,88 @@ struct ComplicationInlineContent: View {
             return model.isStale
                 ? "IOB \(model.iobText) · \(model.ageText) ago"
                 : "IOB \(model.iobText) · COB \(model.cobText) · \(model.glucoseWithArrow)"
-        default:
+        case .chart,
+             .gauge,
+             .glucose:
             return model.isStale
-                ? "\(model.state.glucose) · \(model.ageText) ago"
-                : "\(model.glucoseWithArrow) \(model.state.delta) · IOB \(model.state.iob)"
+                ? "\(model.displayedState.glucose) · \(model.ageText) ago"
+                : "\(model.glucoseWithArrow) \(model.displayedState.delta) · IOB \(model.displayedState.iob)"
         }
+    }
+}
+
+private struct ComplicationChartScale {
+    private static let inset: CGFloat = 3
+
+    let size: CGSize
+    let timeRange: ClosedRange<TimeInterval>
+    let valueRange: ClosedRange<Double>
+
+    func horizontalPosition(of timestamp: TimeInterval) -> CGFloat {
+        let elapsed = (timestamp - timeRange.lowerBound) / (timeRange.upperBound - timeRange.lowerBound)
+        return Self.inset + CGFloat(elapsed) * (size.width - Self.inset * 2)
+    }
+
+    func verticalPosition(of glucose: Double) -> CGFloat {
+        let fraction = (glucose - valueRange.lowerBound) / (valueRange.upperBound - valueRange.lowerBound)
+        return Self.inset + CGFloat(1 - fraction) * (size.height - Self.inset * 2)
+    }
+
+    func position(of point: ComplicationPoint) -> CGPoint {
+        CGPoint(x: horizontalPosition(of: point.timestamp), y: verticalPosition(of: point.glucose))
     }
 }
 
 struct ComplicationSparkline: View {
     let model: ComplicationModel
 
+    private var history: [ComplicationPoint] { model.displayedState.history }
+    private var band: ClosedRange<Double> { model.displayedState.inRangeBand }
+
     private var valueRange: ClosedRange<Double> {
-        let values = model.state.history.map(\.v)
-        let band = model.state.inRangeBand
-        let lo = min(values.min() ?? band.lowerBound, band.lowerBound)
-        let hi = max(values.max() ?? band.upperBound, band.upperBound)
-        return lo ... max(hi, lo + model.state.chartMinimumSpan)
+        let values = history.map(\.glucose)
+        let lowest = min(values.min() ?? band.lowerBound, band.lowerBound)
+        let highest = max(values.max() ?? band.upperBound, band.upperBound)
+        return lowest ... max(highest, lowest + model.displayedState.chartMinimumSpan)
+    }
+
+    private var timeRange: ClosedRange<TimeInterval> {
+        let end = model.displayedState.date.timeIntervalSince1970
+        return (end - ComplicationState.chartWindow) ... end
     }
 
     var body: some View {
-        let points = model.state.history
-        let range = valueRange
-        let end = model.state.date.timeIntervalSince1970
-        let start = end - ComplicationState.chartWindow
-        let band = model.state.inRangeBand
-
-        GeometryReader { geo in
-            if points.count >= 2 {
-                let size = geo.size
-                let inset: CGFloat = 3
-                let x: (TimeInterval) -> CGFloat = { t in
-                    inset + CGFloat((t - start) / (end - start)) * (size.width - inset * 2)
-                }
-                let y: (Double) -> CGFloat = { v in
-                    let fraction = (v - range.lowerBound) / (range.upperBound - range.lowerBound)
-                    return inset + CGFloat(1 - fraction) * (size.height - inset * 2)
-                }
-                let bandTop = y(band.upperBound)
-                let bandBottom = y(band.lowerBound)
-
-                Rectangle()
-                    .fill(Color.primary.opacity(model.fullColor ? 0.12 : 0.2))
-                    .frame(width: size.width, height: max(1, bandBottom - bandTop))
-                    .position(x: size.width / 2, y: (bandTop + bandBottom) / 2)
-
-                Path { path in
-                    for (index, point) in points.enumerated() {
-                        let p = CGPoint(x: x(point.t), y: y(point.v))
-                        if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
-                    }
-                }
-                .stroke(model.glucoseColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-
-                if let last = points.last {
-                    Circle()
-                        .fill(model.glucoseColor)
-                        .frame(width: 4, height: 4)
-                        .position(x: x(last.t), y: y(last.v))
-                }
+        GeometryReader { geometry in
+            if history.count >= 2 {
+                chart(scale: ComplicationChartScale(size: geometry.size, timeRange: timeRange, valueRange: valueRange))
             } else {
                 Text("no data")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
             }
         }
+    }
+
+    @ViewBuilder private func chart(scale: ComplicationChartScale) -> some View {
+        inRangeBand(scale: scale)
+        Path { $0.addLines(history.map(scale.position(of:))) }
+            .stroke(model.glucoseColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        if let latest = history.last {
+            Circle()
+                .fill(model.glucoseColor)
+                .frame(width: 4, height: 4)
+                .position(scale.position(of: latest))
+        }
+    }
+
+    private func inRangeBand(scale: ComplicationChartScale) -> some View {
+        let top = scale.verticalPosition(of: band.upperBound)
+        let bottom = scale.verticalPosition(of: band.lowerBound)
+        return Rectangle()
+            .fill(Color.primary.opacity(model.fullColor ? 0.12 : 0.2))
+            .frame(width: scale.size.width, height: max(1, bottom - top))
+            .position(x: scale.size.width / 2, y: (top + bottom) / 2)
     }
 }
 
@@ -483,45 +516,61 @@ struct ComplicationPreview: View {
     let slot: ComplicationSlot
     let state: ComplicationState
 
+    private var model: ComplicationModel {
+        ComplicationModel(kind: kind, state: state, rendering: ComplicationRendering(referenceDate: state.date))
+    }
+
     var body: some View {
-        let model = ComplicationModel(kind: kind, state: state, referenceDate: state.date)
         switch slot {
         case .circular:
-            ZStack {
-                Circle().fill(Color.white.opacity(0.14))
-                ComplicationCircularContent(model: model)
-                    .padding(4)
-            }
-            .frame(width: 66, height: 66)
+            circular
         case .rectangular:
-            ComplicationRectangularContent(model: model)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(width: 172, height: 66)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
+            rectangular
         case .corner:
-            VStack(spacing: 2) {
-                ComplicationCornerMain(model: model)
-                if kind == .gauge {
-                    Gauge(value: model.gaugeValue, in: state.gaugeRange) { EmptyView() }
-                        .gaugeStyle(.accessoryLinear)
-                        .tint(model.gaugeGradient)
-                        .frame(width: 56)
-                } else {
-                    ComplicationCornerLabel(model: model)
-                        .font(.system(size: 9, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                }
-            }
-            .padding(6)
-            .frame(width: 80, height: 66)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
+            corner
         case .inline:
-            ComplicationInlineContent(model: model)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+            EmptyView()
+        }
+    }
+
+    private var circular: some View {
+        ZStack {
+            Circle().fill(Color.white.opacity(0.14))
+            ComplicationCircularContent(model: model)
+                .padding(4)
+        }
+        .frame(width: 66, height: 66)
+    }
+
+    private var rectangular: some View {
+        ComplicationRectangularContent(model: model)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(width: 172, height: 66)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
+    }
+
+    private var corner: some View {
+        VStack(spacing: 2) {
+            ComplicationCornerMain(model: model)
+            cornerLabel
+        }
+        .padding(6)
+        .frame(width: 80, height: 66)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
+    }
+
+    @ViewBuilder private var cornerLabel: some View {
+        if kind == .gauge {
+            Gauge(value: model.gaugeValue, in: state.gaugeRange) { EmptyView() }
+                .gaugeStyle(.accessoryLinear)
+                .tint(model.gaugeGradient)
+                .frame(width: 56)
+        } else {
+            ComplicationCornerLabel(model: model)
+                .font(.system(size: 9, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.5)
         }
     }
 }

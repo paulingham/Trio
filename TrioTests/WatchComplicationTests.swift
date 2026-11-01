@@ -4,6 +4,12 @@ import Testing
 @testable import Trio
 
 @Suite("Watch Complication") struct WatchComplicationTests {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func makeModel(_ kind: ComplicationKind, _ state: ComplicationState, at date: Date) -> ComplicationModel {
+        ComplicationModel(kind: kind, state: state, rendering: ComplicationRendering(referenceDate: date))
+    }
+
     private func decodeSettings(_ json: String) throws -> TrioSettings {
         try JSONDecoder().decode(TrioSettings.self, from: Data(json.utf8))
     }
@@ -34,7 +40,11 @@ import Testing
     }
 
     @Test("Snapshot round-trips through the store encoding") func snapshotRoundTrips() throws {
-        let sample = ComplicationState.sample(units: "mg/dL", cornerValue: .cob, secondaryValue: .loopAge, staleMinutes: 25)
+        let sample = ComplicationState.sample(
+            units: "mg/dL",
+            settings: ComplicationSlotSettings(cornerValue: .cob, secondaryValue: .loopAge, staleMinutes: 25),
+            date: now
+        )
         let data = try JSONEncoder().encode(sample)
         let decoded = try JSONDecoder().decode(ComplicationState.self, from: data)
         #expect(decoded == sample)
@@ -45,21 +55,20 @@ import Testing
     }
 
     @Test("Units decide the gauge range and clamp the value") func gaugeRange() {
-        var state = ComplicationState.sample(units: "mmol/L")
+        var state = ComplicationState.sample(units: "mmol/L", date: now)
         #expect(state.gaugeRange == 2.5 ... 16.0)
         state.glucoseValue = 25
         #expect(state.gaugeValue == 16.0)
         state.glucoseValue = 1
         #expect(state.gaugeValue == 2.5)
 
-        state = ComplicationState.sample(units: "mg/dL")
+        state = ComplicationState.sample(units: "mg/dL", date: now)
         #expect(state.gaugeRange == 45 ... 290)
         #expect(state.gaugeValue == 115)
     }
 
     @Test("Staleness follows the configured minutes") func staleness() {
-        let now = Date()
-        var state = ComplicationState.sample(units: "mg/dL", staleMinutes: 10, date: now)
+        var state = ComplicationState.sample(units: "mg/dL", settings: ComplicationSlotSettings(staleMinutes: 10), date: now)
         #expect(!state.isStale(at: now.addingTimeInterval(9 * 60)))
         #expect(state.isStale(at: now.addingTimeInterval(11 * 60)))
         #expect(state.minutesAgo(at: now.addingTimeInterval(11 * 60)) == 11)
@@ -68,37 +77,54 @@ import Testing
         #expect(state.isStale(at: now.addingTimeInterval(16 * 60)))
     }
 
+    @Test("Staleness flips just after the configured minutes") func stalenessThreshold() {
+        let settings = ComplicationSlotSettings(staleMinutes: 10)
+        let state = ComplicationState.sample(units: "mg/dL", settings: settings, date: now)
+        #expect(!state.isStale(at: now.addingTimeInterval(10 * 60)))
+        #expect(state.isStale(at: now.addingTimeInterval(10 * 60 + 1)))
+    }
+
+    @Test("A stale reading is greyed") func staleReadingGreyed() {
+        let settings = ComplicationSlotSettings(staleMinutes: 10)
+        let state = ComplicationState.sample(units: "mg/dL", settings: settings, date: now)
+        let fresh = makeModel(.glucose, state, at: now.addingTimeInterval(7 * 60))
+        #expect(fresh.valueColor == .primary)
+        #expect(fresh.dimColor == .secondary)
+        let stale = makeModel(.glucose, state, at: now.addingTimeInterval(11 * 60))
+        #expect(stale.glucoseColor == .gray)
+        #expect(stale.valueColor == .gray)
+        #expect(stale.dimColor == .gray)
+    }
+
     @Test("Slot text follows the chosen value") func slotText() {
-        var state = ComplicationState.sample(units: "mmol/L")
+        var state = ComplicationState.sample(units: "mmol/L", date: now)
         state.trend = "FortyFiveUp"
         state.delta = "+0.3"
         #expect(state.trendArrow == "↗︎")
-        #expect(state.text(for: .nothing, labelled: true) == "")
-        #expect(state.text(for: .iob, labelled: true) == "IOB 1.25")
-        #expect(state.text(for: .iob, labelled: false) == "1.25")
-        #expect(state.text(for: .cob, labelled: true) == "COB 12")
-        #expect(state.text(for: .delta, labelled: true) == "↗︎ +0.3")
-        #expect(state.text(for: .loopAge, labelled: true) == "Loop 2 min")
+        #expect(state.labelledText(for: .nothing) == "")
+        #expect(state.labelledText(for: .iob) == "IOB 1.25")
+        #expect(state.plainText(for: .iob) == "1.25")
+        #expect(state.labelledText(for: .cob) == "COB 12")
+        #expect(state.labelledText(for: .delta) == "↗︎ +0.3")
+        #expect(state.labelledText(for: .loopAge) == "Loop 2 min")
         state.trend = "Unknown"
         #expect(state.trendArrow == "")
-        #expect(state.text(for: .delta, labelled: false) == "+0.3")
+        #expect(state.plainText(for: .delta) == "+0.3")
     }
 
     @Test("Loop staleness is separate from reading staleness") func loopStaleness() {
-        let now = Date()
-        var state = ComplicationState.sample(units: "mmol/L", staleMinutes: 15, date: now)
+        var state = ComplicationState.sample(units: "mmol/L", settings: ComplicationSlotSettings(staleMinutes: 15), date: now)
         state.loopDate = now.addingTimeInterval(-20 * 60)
-        let model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        let model = makeModel(.iob, state, at: now)
         #expect(!model.isStale)
         #expect(model.isLoopStale)
         #expect(model.valueColor == .gray)
-        #expect(model.iobStatusText == "loop 20 min")
+        #expect(model.statusLine == "loop 20 min")
         state.loopDate = nil
         #expect(!state.isLoopStale(at: now.addingTimeInterval(3600)))
     }
 
     @Test("Loop age counts up from the loop date") func loopAge() {
-        let now = Date()
         var state = ComplicationState.sample(units: "mg/dL", date: now)
         state.loopDate = now
         state.lastLoopTime = "1 min"
@@ -106,56 +132,54 @@ import Testing
         #expect(state.loopAgeText(at: now.addingTimeInterval(-60)) == "0 min")
         #expect(state.loopAgeText(at: now.addingTimeInterval(1440 * 60)) == "1440 min")
         #expect(state.loopAgeText(at: now.addingTimeInterval(1441 * 60)) == "--")
-        let model = ComplicationModel(kind: .glucose, state: state, referenceDate: now.addingTimeInterval(7 * 60))
-        #expect(model.state.text(for: .loopAge, labelled: true) == "Loop 7 min")
+        let model = makeModel(.glucose, state, at: now.addingTimeInterval(7 * 60))
+        #expect(model.displayedState.labelledText(for: .loopAge) == "Loop 7 min")
 
         state.loopDate = nil
         #expect(state.loopAgeText(at: now.addingTimeInterval(7 * 60)) == "1 min")
     }
 
     @Test("A stale loop replaces IOB and COB with dashes") func loopStaleValues() {
-        let now = Date()
-        var state = ComplicationState.sample(units: "mg/dL", staleMinutes: 15, date: now)
+        var state = ComplicationState.sample(units: "mg/dL", settings: ComplicationSlotSettings(staleMinutes: 15), date: now)
         state.loopDate = now.addingTimeInterval(-15 * 60)
-        var model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
-        #expect(model.state.iob == "1.25")
+        var model = makeModel(.iob, state, at: now)
+        #expect(model.displayedState.iob == "1.25")
         #expect(model.iobText == "1.25 U")
         #expect(model.cobText == "12 g")
         #expect(model.valueColor == .primary)
 
         state.loopDate = now.addingTimeInterval(-16 * 60)
-        model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
-        #expect(model.state.iob == "--")
-        #expect(model.state.cob == "--")
+        model = makeModel(.iob, state, at: now)
+        #expect(model.displayedState.iob == "--")
+        #expect(model.displayedState.cob == "--")
         #expect(model.iobText == "--")
         #expect(model.cobText == "--")
-        #expect(model.state.text(for: .iob, labelled: true) == "IOB --")
-        #expect(model.state.text(for: .cob, labelled: false) == "--")
+        #expect(model.displayedState.labelledText(for: .iob) == "IOB --")
+        #expect(model.displayedState.plainText(for: .cob) == "--")
         #expect(model.valueColor == .gray)
     }
 
     @Test("A missing loop date greys IOB and COB but keeps their values") func loopUnknown() {
-        let now = Date()
         var state = ComplicationState.sample(units: "mg/dL", date: now)
         state.loopDate = nil
-        let model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        let model = makeModel(.iob, state, at: now)
         #expect(model.isLoopUnknown)
         #expect(!model.isLoopStale)
-        #expect(model.state.iob == "1.25")
+        #expect(model.displayedState.iob == "1.25")
         #expect(model.iobText == "1.25 U")
         #expect(model.valueColor == .gray)
-        #expect(!ComplicationModel(kind: .iob, state: .placeholder, referenceDate: now, isPlaceholder: true).isLoopUnknown)
+        let rendering = ComplicationRendering(referenceDate: now, isPlaceholder: true)
+        #expect(!ComplicationModel(kind: .iob, state: .placeholder, rendering: rendering).isLoopUnknown)
     }
 
     @Test("Ring and chart band follow the user's limits") func inRangeBand() {
-        var state = ComplicationState.sample(units: "mg/dL")
+        var state = ComplicationState.sample(units: "mg/dL", date: now)
         #expect(state.inRangeBand == 70 ... 180)
-        state.lowLimit = 80
-        state.highLimit = 160
+        state.limits = 80 ... 160
         #expect(state.inRangeBand == 80 ... 160)
-        state.highLimit = 60
+        state.limits = nil
         #expect(state.inRangeBand == 70 ... 180)
-        let model = ComplicationModel(kind: .gauge, state: state, referenceDate: state.date)
+        let model = makeModel(.gauge, state, at: state.date)
         #expect(model.gaugeGradient.stops.first?.color == .red)
         #expect(model.gaugeGradient.stops.count == 5)
     }
@@ -163,7 +187,8 @@ import Testing
     @Test("Placeholder has no reading and a neutral colour") func placeholder() {
         let state = ComplicationState.placeholder
         #expect(state.gaugeValue == nil)
-        let model = ComplicationModel(kind: .gauge, state: state, referenceDate: Date(), isPlaceholder: true)
+        let rendering = ComplicationRendering(referenceDate: now, isPlaceholder: true)
+        let model = ComplicationModel(kind: .gauge, state: state, rendering: rendering)
         #expect(model.gaugeValue == (45.0 + 290.0) / 2)
         #expect(model.gaugeGradient == Gradient(colors: [.gray, .gray]))
         #expect(state.history.isEmpty)
