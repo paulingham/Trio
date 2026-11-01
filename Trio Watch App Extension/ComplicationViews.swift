@@ -38,12 +38,12 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         switch self {
         case .glucose:
             return String(
-                localized: "Glucose and trend. Small Line sits under the glucose on circular slots, Corner Label on corner slots.",
+                localized: "Glucose and trend. Small Line sits under the glucose on circular slots, Corner Label on corners.",
                 comment: "Description of the glucose watch complication"
             )
         case .gauge:
             return String(
-                localized: "Glucose inside a ring that fills from low to high. Rectangular slots add the Small Line, IOB and COB.",
+                localized: "Glucose inside a ring that fills from low to high. Rectangular slots add Small Line, IOB and COB.",
                 comment: "Description of the glucose ring watch complication"
             )
         case .iob:
