@@ -124,8 +124,6 @@ private func complicationConfiguration(for kind: ComplicationKind) -> some Widge
     .supportedFamilies(families(for: kind))
 }
 
-// `Widget` needs an argument-less `init`, so each kind is its own small struct.
-
 struct TrioGlucoseComplication: Widget {
     var body: some WidgetConfiguration { complicationConfiguration(for: .glucose) }
 }

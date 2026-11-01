@@ -129,6 +129,8 @@ struct ComplicationState: Codable, Equatable {
         }
     }
 
+    private static let maxLoopAgeMinutes = 1440
+
     func isStale(at reference: Date) -> Bool {
         reference.timeIntervalSince(date) > staleAfter
     }
@@ -136,6 +138,12 @@ struct ComplicationState: Codable, Equatable {
     func isLoopStale(at reference: Date) -> Bool {
         guard let loopDate = loopDate else { return false }
         return reference.timeIntervalSince(loopDate) > staleAfter
+    }
+
+    func loopAgeText(at reference: Date) -> String {
+        guard let loopDate = loopDate else { return lastLoopTime }
+        let minutes = max(0, Int(reference.timeIntervalSince(loopDate) / 60))
+        return minutes > Self.maxLoopAgeMinutes ? "--" : "\(minutes) min"
     }
 
     func minutesAgo(at reference: Date) -> Int {
@@ -160,7 +168,6 @@ struct ComplicationState: Codable, Equatable {
 enum ComplicationStore {
     static let key = "ComplicationState.latest"
 
-    // INFOPLIST_KEY_ does not reach generated Info.plists for custom keys, so fall back to the bundle identifier.
     static var appGroupID: String? {
         if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupID") as? String,
            !fromPlist.isEmpty, !fromPlist.hasPrefix("$(")

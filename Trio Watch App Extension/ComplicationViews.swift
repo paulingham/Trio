@@ -83,23 +83,32 @@ struct ComplicationModel {
         isPlaceholder: Bool = false,
         fullColor: Bool = true
     ) {
+        let isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
+        var shown = state
+        shown.lastLoopTime = state.loopAgeText(at: referenceDate)
+        if isLoopStale {
+            shown.iob = "--"
+            shown.cob = "--"
+        }
         self.kind = kind
-        self.state = state
+        self.state = shown
         self.referenceDate = referenceDate
         self.isPlaceholder = isPlaceholder
         self.fullColor = fullColor
         isStale = !isPlaceholder && state.isStale(at: referenceDate)
-        isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
+        self.isLoopStale = isLoopStale
+        isLoopUnknown = !isPlaceholder && state.loopDate == nil
     }
 
     let isLoopStale: Bool
+    let isLoopUnknown: Bool
 
     var glucoseColor: Color {
         if isStale { return .gray }
         return fullColor ? state.glucoseColor : .primary
     }
 
-    var valueColor: Color { isStale || isLoopStale ? .gray : .primary }
+    var valueColor: Color { isStale || isLoopStale || isLoopUnknown ? .gray : .primary }
 
     var iobStatusText: String {
         if isStale { return ageText }
@@ -120,8 +129,8 @@ struct ComplicationModel {
         return "\(state.minutesAgo(at: referenceDate)) min"
     }
 
-    var iobText: String { "\(state.iob) U" }
-    var cobText: String { "\(state.cob) g" }
+    var iobText: String { state.iob == "--" ? "--" : "\(state.iob) U" }
+    var cobText: String { state.cob == "--" ? "--" : "\(state.cob) g" }
 
     var secondaryText: String {
         isStale ? ageText : state.text(for: state.secondaryValue, labelled: false)
@@ -361,7 +370,7 @@ struct ComplicationRectangularContent: View {
                     .foregroundStyle(model.glucoseColor)
                 Text(model.isStale ? "\(model.ageText) ago" : "\(model.state.delta) · loop \(model.state.lastLoopTime)")
                     .font(.system(size: 11))
-                    .foregroundStyle(model.isLoopStale ? Color.gray : Color.secondary)
+                    .foregroundStyle(model.isLoopStale || model.isLoopUnknown ? Color.gray : Color.secondary)
             }
         }
     }

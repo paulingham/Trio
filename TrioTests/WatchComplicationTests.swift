@@ -92,9 +92,59 @@ import Testing
         #expect(!model.isStale)
         #expect(model.isLoopStale)
         #expect(model.valueColor == .gray)
-        #expect(model.iobStatusText == "loop 2 min")
+        #expect(model.iobStatusText == "loop 20 min")
         state.loopDate = nil
         #expect(!state.isLoopStale(at: now.addingTimeInterval(3600)))
+    }
+
+    @Test("Loop age counts up from the loop date") func loopAge() {
+        let now = Date()
+        var state = ComplicationState.sample(units: "mg/dL", date: now)
+        state.loopDate = now
+        state.lastLoopTime = "1 min"
+        #expect(state.loopAgeText(at: now.addingTimeInterval(7 * 60)) == "7 min")
+        #expect(state.loopAgeText(at: now.addingTimeInterval(-60)) == "0 min")
+        #expect(state.loopAgeText(at: now.addingTimeInterval(1440 * 60)) == "1440 min")
+        #expect(state.loopAgeText(at: now.addingTimeInterval(1441 * 60)) == "--")
+        let model = ComplicationModel(kind: .glucose, state: state, referenceDate: now.addingTimeInterval(7 * 60))
+        #expect(model.state.text(for: .loopAge, labelled: true) == "Loop 7 min")
+
+        state.loopDate = nil
+        #expect(state.loopAgeText(at: now.addingTimeInterval(7 * 60)) == "1 min")
+    }
+
+    @Test("A stale loop replaces IOB and COB with dashes") func loopStaleValues() {
+        let now = Date()
+        var state = ComplicationState.sample(units: "mg/dL", staleMinutes: 15, date: now)
+        state.loopDate = now.addingTimeInterval(-15 * 60)
+        var model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        #expect(model.state.iob == "1.25")
+        #expect(model.iobText == "1.25 U")
+        #expect(model.cobText == "12 g")
+        #expect(model.valueColor == .primary)
+
+        state.loopDate = now.addingTimeInterval(-16 * 60)
+        model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        #expect(model.state.iob == "--")
+        #expect(model.state.cob == "--")
+        #expect(model.iobText == "--")
+        #expect(model.cobText == "--")
+        #expect(model.state.text(for: .iob, labelled: true) == "IOB --")
+        #expect(model.state.text(for: .cob, labelled: false) == "--")
+        #expect(model.valueColor == .gray)
+    }
+
+    @Test("A missing loop date greys IOB and COB but keeps their values") func loopUnknown() {
+        let now = Date()
+        var state = ComplicationState.sample(units: "mg/dL", date: now)
+        state.loopDate = nil
+        let model = ComplicationModel(kind: .iob, state: state, referenceDate: now)
+        #expect(model.isLoopUnknown)
+        #expect(!model.isLoopStale)
+        #expect(model.state.iob == "1.25")
+        #expect(model.iobText == "1.25 U")
+        #expect(model.valueColor == .gray)
+        #expect(!ComplicationModel(kind: .iob, state: .placeholder, referenceDate: now, isPlaceholder: true).isLoopUnknown)
     }
 
     @Test("Ring and chart band follow the user's limits") func inRangeBand() {
