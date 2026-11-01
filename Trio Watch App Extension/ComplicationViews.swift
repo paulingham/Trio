@@ -64,7 +64,8 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         switch self {
         case .chart: return [.rectangular]
         case .gauge: return [.corner, .circular, .rectangular]
-        case .glucose, .iob: return [.corner, .circular, .rectangular, .inline]
+        case .glucose,
+             .iob: return [.corner, .circular, .rectangular, .inline]
         }
     }
 }
@@ -203,7 +204,8 @@ struct ComplicationCircularContent: View {
     var body: some View {
         Group {
             switch model.kind {
-            case .chart, .glucose:
+            case .chart,
+                 .glucose:
                 glucose
             case .gauge:
                 GlucoseRingGauge(model: model, fontSize: 16)

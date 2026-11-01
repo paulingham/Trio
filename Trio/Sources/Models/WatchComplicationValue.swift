@@ -23,7 +23,6 @@ enum WatchComplicationValue: String, CaseIterable, Identifiable, Codable, Hashab
         case .loopAge: return String(localized: "Loop Age", comment: "Minutes since the last loop")
         }
     }
-
 }
 
 /// Defaults shared by every target so the complication behaves the same before
