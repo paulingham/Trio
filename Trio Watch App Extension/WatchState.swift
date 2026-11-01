@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import WatchConnectivity
+import WidgetKit
 
 /// WatchState manages the communication between the Watch app and the iPhone app using WatchConnectivity.
 /// It handles glucose data synchronization and sending treatment requests (bolus, carbs) to the phone.
@@ -425,6 +426,22 @@ import WatchConnectivity
         if let lastLoopTime = message[WatchMessageKeys.lastLoopTime] as? String {
             self.lastLoopTime = lastLoopTime
         }
+
+        // Persist a compact snapshot for the watch face complications and ask WidgetKit to redraw.
+        // Runs for both delivery paths (foreground message and background userInfo) because
+        // both end up here after the debounce.
+        let stateDate = lastWatchStateUpdate.map { Date(timeIntervalSince1970: $0) } ?? Date()
+        ComplicationStore.save(ComplicationState(
+            date: stateDate,
+            glucose: currentGlucose,
+            glucoseColorHex: currentGlucoseColorString,
+            trend: trend ?? "",
+            delta: delta ?? "--",
+            iob: iob ?? "--",
+            cob: cob ?? "--",
+            lastLoopTime: lastLoopTime ?? "--"
+        ))
+        WidgetCenter.shared.reloadTimelines(ofKind: "TrioGlucoseComplication")
 
         if let glucoseData = message[WatchMessageKeys.glucoseValues] as? [[String: Any]] {
             glucoseValues = glucoseData.compactMap { data in
