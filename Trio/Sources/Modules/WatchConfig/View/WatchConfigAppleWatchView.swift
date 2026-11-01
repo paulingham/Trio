@@ -20,7 +20,6 @@ struct WatchConfigAppleWatchView: BaseView {
         state.deleteGarminDevice()
     }
 
-    /// Sample data for the complication previews, in the user's units, following the pickers.
     private var previewState: ComplicationState {
         ComplicationState.sample(
             units: state.units.rawValue,
@@ -30,7 +29,6 @@ struct WatchConfigAppleWatchView: BaseView {
         )
     }
 
-    /// Slots shown in the previews; inline is a single line of text so it is left out.
     private func previewSlots(for kind: ComplicationKind) -> [ComplicationSlot] {
         kind.slots.filter { $0 != .inline }
     }

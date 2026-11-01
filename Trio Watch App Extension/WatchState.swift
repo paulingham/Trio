@@ -48,15 +48,11 @@ import WidgetKit
     var bolusIncrement: Decimal = 0.05
     var confirmBolusFaster: Bool = false
 
-    // Complication configuration, chosen on the phone
     var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
     var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
-    /// "mg/dL" or "mmol/L" as sent by the phone.
     var glucoseUnits: String = "mg/dL"
-    /// When the loop last ran on the phone, for greying IOB and COB on the complications.
     var lastLoopDate: Date?
-    /// The user's low and high limits in their units, for the complication ring and chart band.
     var lowGlucoseLimit: Double?
     var highGlucoseLimit: Double?
 
@@ -571,16 +567,10 @@ import WidgetKit
             forecastLines = forecastPayload[WatchMessageKeys.forecastLines] as? [String: [Double]] ?? [:]
         }
 
-        // Persist a compact snapshot for the watch face complications and ask WidgetKit to redraw.
-        // Runs for both delivery paths (foreground message and background userInfo) because
-        // both end up here after the debounce. The snapshot is dated by the latest reading, not
-        // by when the phone sent it, so Grey Out After tracks the CGM rather than the link.
         saveComplicationSnapshot()
     }
 
     private func saveComplicationSnapshot() {
-        // The phone sends an empty state when it cannot compute one (for example while the
-        // watch is unreachable); keep the last real snapshot rather than overwrite it with "--".
         guard let latestReading = glucoseValues.last else { return }
         let readingDate = latestReading.date
         let changed = ComplicationStore.save(ComplicationState(
@@ -607,8 +597,6 @@ import WidgetKit
         }
     }
 
-    /// Reloads only the Trio complications the user has put on a face, so the WidgetKit
-    /// refresh budget is not spent on kinds nobody is looking at.
     private func reloadInstalledComplications() {
         let dataKinds = Set(ComplicationKind.allCases.map(\.widgetKind))
         WidgetCenter.shared.getCurrentConfigurations { result in
@@ -619,8 +607,6 @@ import WidgetKit
         }
     }
 
-    /// Readings inside the chart window, thinned to at most 40 points to keep the
-    /// App Group snapshot small. Values are already in the user's units.
     private func complicationHistory(until end: Date) -> [ComplicationPoint] {
         let from = end.addingTimeInterval(-ComplicationState.chartWindow)
         let recent = glucoseValues.filter { $0.date >= from }

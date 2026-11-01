@@ -14,9 +14,7 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     var iob: String?
     var cob: String?
     var lastLoopTime: String?
-    /// When the loop last ran; the complications grey IOB and COB when it is older than the stale threshold.
     var lastLoopDate: Date?
-    /// The user's low and high glucose limits in the user's units, for the complication ring and chart band.
     var lowGlucoseLimit: Double?
     var highGlucoseLimit: Double?
     var overridePresets: [OverridePresetWatch] = []
@@ -32,7 +30,6 @@ struct WatchState: Hashable, Equatable, Sendable, Encodable, Decodable {
     var bolusIncrement: Decimal = 0.05
     var confirmBolusFaster: Bool = false
 
-    // Complication configuration
     var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
     var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
     var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes

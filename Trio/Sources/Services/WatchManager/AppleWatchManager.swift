@@ -220,7 +220,6 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 }
                 watchState.lastLoopDate = self.apsManager.lastLoopDate
 
-                // The user's own limits in their units, for the complication ring and chart band
                 watchState.lowGlucoseLimit = self.units == .mgdL
                     ? Double(truncating: self.lowGlucose as NSNumber)
                     : Double(truncating: self.lowGlucose.asMmolL as NSNumber)
@@ -354,7 +353,6 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
                 watchState.bolusIncrement = self.settingsManager.preferences.bolusIncrement
                 watchState.confirmBolusFaster = self.settingsManager.settings.confirmBolusFaster
 
-                // Complication configuration (Settings → Smart Watch → Apple Watch)
                 watchState.complicationCornerValue = self.settingsManager.settings.watchComplicationCornerValue
                 watchState.complicationSecondaryValue = self.settingsManager.settings.watchComplicationSecondaryValue
                 watchState.complicationStaleMinutes = self.settingsManager.settings.watchComplicationStaleMinutes

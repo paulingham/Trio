@@ -1,13 +1,9 @@
 import SwiftUI
 import WidgetKit
 
-// MARK: - Data-driven complications
-
-/// Timeline entry shared by every data-driven complication.
 struct TrioGlucoseEntry: TimelineEntry {
     let date: Date
     let state: ComplicationState
-    /// True for the placeholder / preview entry and before the first snapshot exists.
     let isPlaceholder: Bool
 }
 
@@ -24,10 +20,6 @@ struct TrioGlucoseProvider: TimelineProvider {
         completion(Self.currentEntry(at: Date()))
     }
 
-    /// Entries every five minutes for the next two hours so the age text keeps counting
-    /// without the extension being woken, plus one at the exact moment the reading turns
-    /// stale so the face greys it on time. `.atEnd` asks for a new timeline after that; the
-    /// watch app also reloads the timelines whenever new data arrives from the phone.
     func getTimeline(in _: Context, completion: @escaping (Timeline<TrioGlucoseEntry>) -> Void) {
         let now = Date()
         let current = Self.currentEntry(at: now)
@@ -48,7 +40,6 @@ struct TrioGlucoseProvider: TimelineProvider {
     private static let timelineStep: TimeInterval = 5 * 60
     private static let timelineSpan: TimeInterval = 2 * 60 * 60
 
-    /// The stored snapshot, or a placeholder entry before the watch app has written one.
     private static func currentEntry(at date: Date) -> TrioGlucoseEntry {
         if let state = ComplicationStore.load() {
             return TrioGlucoseEntry(date: date, state: state, isPlaceholder: false)
@@ -56,14 +47,12 @@ struct TrioGlucoseProvider: TimelineProvider {
         return TrioGlucoseEntry(date: date, state: .placeholder, isPlaceholder: true)
     }
 
-    /// Sample shown in the watch face gallery. Units follow the last real snapshot when there is one.
     static var preview: ComplicationState {
         let units = ComplicationStore.load()?.units ?? "mg/dL"
         return ComplicationState.sample(units: units)
     }
 }
 
-/// Applies the WidgetKit-only modifiers round the shared content views.
 struct TrioComplicationEntryView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
@@ -126,7 +115,6 @@ private func families(for kind: ComplicationKind) -> [WidgetFamily] {
     }
 }
 
-/// Configuration shared by the four data-driven complications; only `kind` differs.
 private func complicationConfiguration(for kind: ComplicationKind) -> some WidgetConfiguration {
     StaticConfiguration(kind: kind.widgetKind, provider: TrioGlucoseProvider()) { entry in
         TrioComplicationEntryView(kind: kind, entry: entry)
@@ -153,8 +141,6 @@ struct TrioIobComplication: Widget {
 struct TrioChartComplication: Widget {
     var body: some WidgetConfiguration { complicationConfiguration(for: .chart) }
 }
-
-// MARK: - App icon launcher (unchanged behaviour)
 
 struct TrioWatchComplicationEntry: TimelineEntry {
     let date: Date
@@ -243,8 +229,6 @@ struct TrioWatchComplication: Widget {
         #endif
     }
 }
-
-// MARK: - Bundle
 
 @main struct TrioWatchComplicationBundle: WidgetBundle {
     var body: some Widget {

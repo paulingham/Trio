@@ -52,12 +52,10 @@ enum WatchMessageKeys {
     static let bolusIncrement = "bolusIncrement"
     static let confirmBolusFaster = "confirmBolusFaster"
 
-    // Complication data
     static let lastLoopDate = "lastLoopDate"
     static let lowGlucoseLimit = "lowGlucoseLimit"
     static let highGlucoseLimit = "highGlucoseLimit"
 
-    // Complication configuration
     static let complicationCornerValue = "complicationCornerValue"
     static let complicationSecondaryValue = "complicationSecondaryValue"
     static let complicationStaleMinutes = "complicationStaleMinutes"

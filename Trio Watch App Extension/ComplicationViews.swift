@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// The complications Trio offers on the watch face.
-///
-/// Compiled into the complication extension (which renders them inside WidgetKit),
-/// the watch app and the iOS app (which renders them as previews on the settings page).
-/// Nothing in this file may use WidgetKit so the same views work in all three.
 enum ComplicationKind: String, CaseIterable, Identifiable {
     case glucose
     case gauge
@@ -13,7 +8,6 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// WidgetKit `kind` string, used for `reloadTimelines(ofKind:)`.
     var widgetKind: String {
         switch self {
         case .glucose: return "TrioGlucoseComplication"
@@ -23,7 +17,6 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Name shown in the watch face editor and on the iOS settings page.
     var displayName: String {
         switch self {
         case .glucose: return String(localized: "Trio Glucose", comment: "Name of the glucose watch complication")
@@ -33,7 +26,6 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// One-line description shown in the watch face editor and under the preview on the iOS settings page.
     var summary: String {
         switch self {
         case .glucose:
@@ -59,7 +51,6 @@ enum ComplicationKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Slots each complication is offered in. The chart needs width so it is rectangular only.
     var slots: [ComplicationSlot] {
         switch self {
         case .chart: return [.rectangular]
@@ -77,14 +68,12 @@ enum ComplicationSlot {
     case inline
 }
 
-/// Everything a complication view needs, worked out once.
 struct ComplicationModel {
     let kind: ComplicationKind
     let state: ComplicationState
     let isStale: Bool
     let isPlaceholder: Bool
     let referenceDate: Date
-    /// False on accented / vibrant faces where watchOS applies its own tint.
     let fullColor: Bool
 
     init(
@@ -103,26 +92,21 @@ struct ComplicationModel {
         isLoopStale = !isPlaceholder && state.isLoopStale(at: referenceDate)
     }
 
-    /// True when the loop has not run within the stale threshold; IOB and COB are then greyed.
     let isLoopStale: Bool
 
-    /// Colour for the glucose value: the phone's colour on full-colour faces, grey when stale.
     var glucoseColor: Color {
         if isStale { return .gray }
         return fullColor ? state.glucoseColor : .primary
     }
 
-    /// Colour for IOB and COB: grey when the reading or the loop is stale.
     var valueColor: Color { isStale || isLoopStale ? .gray : .primary }
 
-    /// Status line for the IOB complication: reading age, then loop age, then COB.
     var iobStatusText: String {
         if isStale { return ageText }
         if isLoopStale { return "loop \(state.lastLoopTime)" }
         return "COB \(state.cob)"
     }
 
-    /// Colour for secondary text.
     var dimColor: Color { isStale ? .gray : .secondary }
 
     var trendArrow: String { isStale ? "" : state.trendArrow }
@@ -139,23 +123,18 @@ struct ComplicationModel {
     var iobText: String { "\(state.iob) U" }
     var cobText: String { "\(state.cob) g" }
 
-    /// Text under the glucose on circular slots (Small Line).
     var secondaryText: String {
         isStale ? ageText : state.text(for: state.secondaryValue, labelled: false)
     }
 
-    /// Curved text on corner slots (Corner Label).
     var cornerText: String {
         isStale ? ageText : state.text(for: state.cornerValue, labelled: true)
     }
 
-    /// Ring position. With no reading the ring sits in the middle, in grey, rather than at the
-    /// low end where it would look like a hypo.
     var gaugeValue: Double {
         state.gaugeValue ?? (state.gaugeRange.lowerBound + state.gaugeRange.upperBound) / 2
     }
 
-    /// Red below the user's low limit, green inside the band, amber then red above the high limit.
     var gaugeGradient: Gradient {
         if isStale || !fullColor || state.gaugeValue == nil {
             return Gradient(colors: [.gray, .gray])
@@ -177,9 +156,6 @@ struct ComplicationModel {
     }
 }
 
-// MARK: - Shared pieces
-
-/// The glucose ring used on circular slots and inside the rectangular gauge.
 private struct GlucoseRingGauge: View {
     let model: ComplicationModel
     let fontSize: CGFloat
@@ -198,7 +174,6 @@ private struct GlucoseRingGauge: View {
     }
 }
 
-/// Small caption above a value, used for IOB and COB.
 private struct LabelledValue: View {
     let model: ComplicationModel
     let label: String
@@ -216,8 +191,6 @@ private struct LabelledValue: View {
         }
     }
 }
-
-// MARK: - Circular
 
 struct ComplicationCircularContent: View {
     let model: ComplicationModel
@@ -267,9 +240,6 @@ struct ComplicationCircularContent: View {
     }
 }
 
-// MARK: - Corner
-
-/// The large text in the corner itself. The curved label is `ComplicationCornerLabel`.
 struct ComplicationCornerMain: View {
     let model: ComplicationModel
 
@@ -282,7 +252,6 @@ struct ComplicationCornerMain: View {
     }
 }
 
-/// Content for the curved corner label. WidgetKit bends text and gauges round the corner.
 struct ComplicationCornerLabel: View {
     let model: ComplicationModel
 
@@ -306,8 +275,6 @@ struct ComplicationCornerLabel: View {
         }
     }
 }
-
-// MARK: - Rectangular
 
 struct ComplicationRectangularContent: View {
     let model: ComplicationModel
@@ -408,7 +375,6 @@ struct ComplicationRectangularContent: View {
                 Text(model.secondaryText)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(model.dimColor)
-                // Third line is IOB unless Small Line already shows it, then COB.
                 Text(model.state.secondaryValue == .iob ? "COB \(model.state.cob)" : "IOB \(model.state.iob)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(model.valueColor)
@@ -420,8 +386,6 @@ struct ComplicationRectangularContent: View {
         }
     }
 }
-
-// MARK: - Inline
 
 struct ComplicationInlineContent: View {
     let model: ComplicationModel
@@ -444,14 +408,9 @@ struct ComplicationInlineContent: View {
     }
 }
 
-// MARK: - Sparkline
-
-/// Last three hours of glucose as a line, plus the current reading as a dot.
-/// Plain `Path` drawing so it works in a widget without Swift Charts.
 struct ComplicationSparkline: View {
     let model: ComplicationModel
 
-    /// Vertical range: the data plus the in-range band, stretched to at least the minimum span.
     private var valueRange: ClosedRange<Double> {
         let values = model.state.history.map(\.v)
         let band = model.state.inRangeBand
@@ -510,10 +469,6 @@ struct ComplicationSparkline: View {
     }
 }
 
-// MARK: - Preview (settings page)
-
-/// Mock of a watch face slot, used on the iOS settings page so the user can see
-/// each complication with their current configuration. Not used inside WidgetKit.
 struct ComplicationPreview: View {
     let kind: ComplicationKind
     let slot: ComplicationSlot
@@ -536,7 +491,6 @@ struct ComplicationPreview: View {
                 .frame(width: 172, height: 66)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
         case .corner:
-            // Straight-line stand-in for the curved corner: main text with the label beneath.
             VStack(spacing: 2) {
                 ComplicationCornerMain(model: model)
                 if kind == .gauge {

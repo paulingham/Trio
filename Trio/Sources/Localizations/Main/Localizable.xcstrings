@@ -8826,6 +8826,16 @@
         }
       }
     },
+    "%@ · loop %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · loop %2$@"
+          }
+        }
+      }
+    },
     "%@ (%@-%@)" : {
       "localizations" : {
         "bg" : {
@@ -9496,6 +9506,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ %%"
+          }
+        }
+      }
+    },
+    "%@ ago" : {
+
+    },
+    "%@ ago · loop %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ ago · loop %2$@"
           }
         }
       }
@@ -12289,29 +12312,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$d 小時 %2$d 分鐘"
-          }
-        }
-      }
-    },
-    "%@ ago" : {
-
-    },
-    "%@ ago · loop %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ ago · loop %2$@"
-          }
-        }
-      }
-    },
-    "%@ · loop %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · loop %2$@"
           }
         }
       }
@@ -83279,9 +83279,6 @@
         }
       }
     },
-    "COB %@" : {
-
-    },
     "COB (Carbs on Board)" : {
       "localizations" : {
         "bg" : {
@@ -83411,6 +83408,9 @@
           }
         }
       }
+    },
+    "COB %@" : {
+
     },
     "COBpredBG" : {
       "localizations" : {
@@ -157586,7 +157586,7 @@
     "Grey Out After" : {
 
     },
-    "Grey Out After applies to every complication: older readings are greyed and show their age. Corner Label is the curved text on Trio Glucose corner slots. Small Line is the text under the glucose on Trio Glucose circular slots, beside the ring on Trio Gauge rectangular slots, and the second line of Trio Chart. Trio IOB has a fixed layout." : {
+    "Grey Out After applies to every complication: older readings are greyed and show their age, and IOB and COB grey when the loop has not run within that time. Corner Label is the curved text on Trio Glucose corner slots. Small Line is the text under the glucose on Trio Glucose circular slots, beside the ring on Trio Gauge rectangular slots, and the second line of Trio Chart. Trio IOB has a fixed layout." : {
 
     },
     "h" : {
@@ -176139,19 +176139,6 @@
         }
       }
     },
-    "IOB %@" : {
-
-    },
-    "IOB %@ · COB %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "IOB %1$@ · COB %2$@"
-          }
-        }
-      }
-    },
     "IOB (Insulin on Board)" : {
       "localizations" : {
         "bg" : {
@@ -176278,6 +176265,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "IOB（體內胰島素）"
+          }
+        }
+      }
+    },
+    "IOB %@" : {
+
+    },
+    "IOB %@ · COB %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "IOB %1$@ · COB %2$@"
           }
         }
       }
