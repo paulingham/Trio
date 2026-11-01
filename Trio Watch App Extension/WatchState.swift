@@ -81,8 +81,8 @@ import WidgetKit
     var recommendedBolus: Decimal = 0
 
     /// Snapshots older than this are dropped at the top of the WC delegate
-    /// methods. Single source of truth for both `didReceiveMessage` and
-    /// `didReceiveUserInfo`.
+    /// methods. Single source of truth for `didReceiveMessage`,
+    /// `didReceiveUserInfo` and `didReceiveApplicationContext`.
     private static let maxAcceptableMessageAgeInMinutes: TimeInterval = 15 * 60
 
     // MARK: - Debouncing and batch processing helpers
@@ -94,23 +94,27 @@ import WidgetKit
 
     /// Work item to schedule finalizing the pending data.
     private var finalizeWorkItem: DispatchWorkItem?
+    private var isReloadingComplications = false
 
     /// A flag to tell the UI we’re still updating.
     var showSyncingAnimation: Bool = false
 
     var deviceType = WatchSize.current
 
-    private(set) static weak var current: WatchState?
-
     override init() {
         super.init()
-        Self.current = self
         setupSession()
     }
 
     func ingestReceivedApplicationContext() {
         guard let context = session?.receivedApplicationContext, !context.isEmpty else { return }
         handleIncomingWatchStatePayload(context)
+    }
+
+    var isAwaitingDelivery: Bool {
+        guard let session else { return false }
+        return session.activationState != .activated || session.hasContentPending || !pendingData.isEmpty ||
+            isReloadingComplications
     }
 
     /// Configures the WatchConnectivity session if supported on the device
@@ -172,6 +176,8 @@ import WidgetKit
             if activationState == .activated {
                 WatchLogger.shared.info(.connectivity, "Session activated, phone reachable: \(session.isReachable)")
 
+                WatchBackgroundRefresh.schedule()
+
                 self.forceConditionalWatchStateUpdate()
 
                 self.isReachable = session.isReachable
@@ -226,15 +232,21 @@ import WidgetKit
         handleIncomingWatchStatePayload(applicationContext)
     }
 
-    /// Shared path for watch-state payloads from either delegate method.
-    /// Enforces the freshness contract in one place so the two delivery paths
-    /// can't drift.
+    /// Shared path for watch-state payloads from every delivery route.
+    /// Enforces the freshness contract in one place on the main queue so the
+    /// routes can't drift or interleave.
     private func handleIncomingWatchStatePayload(_ dictionary: [String: Any]) {
+        DispatchQueue.main.async {
+            self.applyIncomingWatchStatePayload(dictionary)
+        }
+    }
+
+    private func applyIncomingWatchStatePayload(_ dictionary: [String: Any]) {
         guard let payload = dictionary[WatchMessageKeys.watchState] as? [String: Any],
               let timestamp = payload[WatchMessageKeys.date] as? TimeInterval
         else {
             WatchLogger.shared.warning(.data, "Watch state payload malformed, skipped")
-            DispatchQueue.main.async { self.showSyncingAnimation = false }
+            showSyncingAnimation = false
             return
         }
         let date = Date(timeIntervalSince1970: timestamp)
@@ -246,7 +258,7 @@ import WidgetKit
             if WatchLogger.shared.shouldLog("staleState") {
                 WatchLogger.shared.debug(.data, "Stale watch state from \(date) skipped")
             }
-            DispatchQueue.main.async { self.showSyncingAnimation = false }
+            showSyncingAnimation = false
             return
         }
 
@@ -260,9 +272,7 @@ import WidgetKit
         }
 
         WatchStateSnapshot.saveLatestDateToDisk(date)
-        DispatchQueue.main.async {
-            self.scheduleUIUpdate(with: payload)
-        }
+        scheduleUIUpdate(with: payload)
     }
 
     func session(_: WCSession, didFinish _: WCSessionUserInfoTransfer, error: (any Error)?) {
@@ -625,7 +635,9 @@ import WidgetKit
 
     private func reloadInstalledComplications() {
         let dataKinds = Set(ComplicationKind.allCases.map(\.widgetKind))
+        isReloadingComplications = true
         WidgetCenter.shared.getCurrentConfigurations { result in
+            DispatchQueue.main.async { self.isReloadingComplications = false }
             guard case let .success(installed) = result else { return }
             for kind in Set(installed.map(\.kind)).intersection(dataKinds) {
                 WidgetCenter.shared.reloadTimelines(ofKind: kind)

@@ -100,10 +100,10 @@ import Testing
         let settings = ComplicationSlotSettings(staleMinutes: 10)
         let state = ComplicationState.sample(units: "mg/dL", settings: settings, date: now)
         let fresh = makeModel(.gauge, state, at: now.addingTimeInterval(10 * 60))
-        #expect(fresh.gaugeGlucoseText == "115")
+        #expect(fresh.glucoseText == "115")
         #expect(fresh.cornerMainText == "115")
         let stale = makeModel(.gauge, state, at: now.addingTimeInterval(10 * 60 + 1))
-        #expect(stale.gaugeGlucoseText == "--")
+        #expect(stale.glucoseText == "--")
         #expect(stale.cornerMainText == "--")
     }
 
@@ -219,5 +219,84 @@ import Testing
         #expect(Color(complicationHex: "#4cd964") != nil)
         #expect(Color(complicationHex: "4cd964ff") == nil)
         #expect(Color(complicationHex: "zzz") == nil)
+    }
+
+    private func londonCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        return calendar
+    }
+
+    private func londonDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) -> Date {
+        londonCalendar().date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+    }
+
+    @Test("Transfers are spread over what is left of the day") func transferBudgetSpread() {
+        let noon = londonDate(2026, 6, 1, 12)
+        let spread: TimeInterval = 12 * 60 * 60 / 6
+        func isDue(after elapsed: TimeInterval) -> Bool {
+            ComplicationTransferBudget.isTransferDue(
+                at: noon,
+                lastTransfer: noon.addingTimeInterval(-elapsed),
+                remainingTransfers: 6,
+                calendar: londonCalendar()
+            )
+        }
+        #expect(!isDue(after: spread - 1))
+        #expect(isDue(after: spread))
+    }
+
+    @Test("A scarce budget is never spent faster than the spread") func transferBudgetScarce() {
+        let noon = londonDate(2026, 6, 1, 12)
+        let isDueAfterTwoHours = ComplicationTransferBudget.isTransferDue(
+            at: noon,
+            lastTransfer: noon.addingTimeInterval(-2 * 60 * 60),
+            remainingTransfers: 1,
+            calendar: londonCalendar()
+        )
+        #expect(!isDueAfterTwoHours)
+    }
+
+    @Test("Transfers keep a minimum gap late in the day") func transferBudgetMinimumGap() {
+        let lateEvening = londonDate(2026, 6, 1, 23)
+        func isDue(after elapsed: TimeInterval) -> Bool {
+            ComplicationTransferBudget.isTransferDue(
+                at: lateEvening,
+                lastTransfer: lateEvening.addingTimeInterval(-elapsed),
+                remainingTransfers: 50,
+                calendar: londonCalendar()
+            )
+        }
+        #expect(!isDue(after: 10 * 60 - 1))
+        #expect(isDue(after: 10 * 60))
+    }
+
+    @Test("An empty budget never transfers") func transferBudgetExhausted() {
+        #expect(!ComplicationTransferBudget.isTransferDue(at: now, lastTransfer: .distantPast, remainingTransfers: 0))
+    }
+
+    @Test("The day's end follows the clock on a 25 hour day") func transferBudgetClockChange() {
+        let lateOnClockChange = londonDate(2026, 10, 25, 23).addingTimeInterval(30 * 60)
+        let isDueAfterTwentyMinutes = ComplicationTransferBudget.isTransferDue(
+            at: lateOnClockChange,
+            lastTransfer: lateOnClockChange.addingTimeInterval(-20 * 60),
+            remainingTransfers: 1,
+            calendar: londonCalendar()
+        )
+        #expect(!isDueAfterTwentyMinutes)
+    }
+
+    @Test("The application context payload is a property list") func applicationContextIsPropertyList() throws {
+        var state = WatchState(date: now)
+        state.currentGlucose = "115"
+        state.lastLoopDate = now
+        state.lowGlucoseLimit = 70
+        state.highGlucoseLimit = 180
+        state.maxBolus = 2.5
+        state.forecastLines = ["iob": [100, 110]]
+        state.forecastStartDate = now
+        let context = [WatchMessageKeys.watchState: BaseWatchManager.watchStateToDictionary(from: state)]
+        let data = try PropertyListSerialization.data(fromPropertyList: context, format: .binary, options: 0)
+        #expect(!data.isEmpty)
     }
 }

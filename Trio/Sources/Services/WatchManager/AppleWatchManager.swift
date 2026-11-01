@@ -35,8 +35,6 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
     private var currentGlucoseTarget: Decimal = 100.0
     private var activeBolusAmount: Double = 0.0
     private var lastComplicationTransferDate: Date = .distantPast
-    private static let complicationTransferMinimumInterval: TimeInterval = 10 * 60
-    private static let complicationTransferMaximumInterval: TimeInterval = 60 * 60
 
     // Queue for handling Core Data change notifications
     private let queue = DispatchQueue(label: "BaseWatchManagerManager.queue", qos: .utility)
@@ -503,7 +501,7 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
 
     // MARK: - Send to Watch
 
-    func watchStateToDictionary(from state: WatchState) -> [String: Any] {
+    static func watchStateToDictionary(from state: WatchState) -> [String: Any] {
         var dictionary: [String: Any] = [
             WatchMessageKeys.date: state.date.timeIntervalSince1970,
             WatchMessageKeys.currentGlucose: state.currentGlucose ?? "--",
@@ -601,43 +599,42 @@ final class BaseWatchManager: NSObject, WCSessionDelegate, Injectable, WatchMana
         var state = state
         state.date = Date()
 
-        let message: [String: Any] = watchStateToDictionary(from: state)
+        let message: [String: Any] = Self.watchStateToDictionary(from: state)
 
         // if session is reachable, it means watch App is in the foreground -> send watchState as message
-        // if session is not reachable, it means it's in background -> send watchState as userInfo
+        // if session is not reachable, it means it's in background -> publish watchState for the next wake
         if session.isReachable {
             session.sendMessage([WatchMessageKeys.watchState: message], replyHandler: nil) { error in
                 warning(.watch, "Sending watch state failed", error: error)
             }
         } else {
-            session.outstandingUserInfoTransfers
-                .filter { $0.userInfo[WatchMessageKeys.watchState] != nil && !$0.isCurrentComplicationInfo }
-                .forEach { $0.cancel() }
-            do {
-                try session.updateApplicationContext([WatchMessageKeys.watchState: message])
-            } catch {
-                debug(.watchManager, "❌ Error updating application context: \(error)")
-            }
-            if shouldTransferForComplication(session, at: state.date) {
-                session.transferCurrentComplicationUserInfo([WatchMessageKeys.watchState: message])
-                lastComplicationTransferDate = state.date
-                debug(.watch, "📤 Transferred new WatchState snapshot for the complication")
-            } else {
-                session.transferUserInfo([WatchMessageKeys.watchState: message])
-                debug(.watch, "📤 Transferred new WatchState snapshot via userInfo")
-            }
+            publishToUnreachableWatch(session, message: message, at: state.date)
         }
         WatchStateSnapshot.saveLatestDateToDisk(state.date)
     }
 
-    private func shouldTransferForComplication(_ session: WCSession, at date: Date) -> Bool {
-        guard session.isComplicationEnabled else { return false }
-        let remaining = session.remainingComplicationUserInfoTransfers
-        guard remaining > 0 else { return false }
-        let endOfDay = Calendar.current.startOfDay(for: date).addingTimeInterval(24 * 60 * 60)
-        let spread = endOfDay.timeIntervalSince(date) / Double(remaining)
-        let interval = min(max(spread, Self.complicationTransferMinimumInterval), Self.complicationTransferMaximumInterval)
-        return date.timeIntervalSince(lastComplicationTransferDate) >= interval
+    private func publishToUnreachableWatch(_ session: WCSession, message: [String: Any], at date: Date) {
+        session.outstandingUserInfoTransfers
+            .filter { $0.userInfo[WatchMessageKeys.watchState] != nil && !$0.isCurrentComplicationInfo }
+            .forEach { $0.cancel() }
+        do {
+            try session.updateApplicationContext([WatchMessageKeys.watchState: message])
+        } catch {
+            debug(.watch, "❌ Error updating application context: \(error)")
+        }
+        let isTransferDue = session.isComplicationEnabled && ComplicationTransferBudget.isTransferDue(
+            at: date,
+            lastTransfer: lastComplicationTransferDate,
+            remainingTransfers: session.remainingComplicationUserInfoTransfers
+        )
+        if isTransferDue {
+            session.transferCurrentComplicationUserInfo([WatchMessageKeys.watchState: message])
+            lastComplicationTransferDate = date
+            debug(.watch, "📤 Transferred new WatchState snapshot for the complication")
+        } else {
+            session.transferUserInfo([WatchMessageKeys.watchState: message])
+            debug(.watch, "📤 Transferred new WatchState snapshot via userInfo")
+        }
     }
 
     func sendAcknowledgment(toWatch success: Bool, message: String = "", ackCode: AcknowledgmentCode) {
@@ -1215,5 +1212,20 @@ extension BaseWatchManager {
         case tempTargetStopped = "temp_target_stopped"
         case genericSuccess = "success"
         case genericFailure = "failure"
+    }
+}
+
+enum ComplicationTransferBudget {
+    private static let minimumInterval: TimeInterval = 10 * 60
+
+    static func isTransferDue(
+        at date: Date,
+        lastTransfer: Date,
+        remainingTransfers: Int,
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard remainingTransfers > 0, let endOfDay = calendar.dateInterval(of: .day, for: date)?.end else { return false }
+        let spreadInterval = endOfDay.timeIntervalSince(date) / Double(remainingTransfers)
+        return date.timeIntervalSince(lastTransfer) >= max(spreadInterval, minimumInterval)
     }
 }

@@ -128,12 +128,10 @@ struct ComplicationModel {
         trendArrow.isEmpty ? glucoseText : "\(glucoseText)\(trendArrow)"
     }
 
-    var gaugeGlucoseText: String { glucoseText }
-
     var cornerMainText: String {
         switch kind {
         case .iob: return displayedState.iob
-        case .gauge: return gaugeGlucoseText
+        case .gauge: return glucoseText
         case .chart,
              .glucose: return glucoseWithArrow
         }
@@ -192,7 +190,7 @@ private struct GlucoseRingGauge: View {
         Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
             Text("BG")
         } currentValueLabel: {
-            Text(model.gaugeGlucoseText)
+            Text(model.glucoseText)
                 .font(.system(size: fontSize, weight: .bold))
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(model.glucoseColor)
@@ -289,7 +287,7 @@ struct ComplicationCornerLabel: View {
             Gauge(value: model.gaugeValue, in: model.displayedState.gaugeRange) {
                 Text("BG")
             } currentValueLabel: {
-                Text(model.gaugeGlucoseText)
+                Text(model.glucoseText)
             } minimumValueLabel: {
                 Text(model.displayedState.gaugeRange.lowerBound, format: .number.precision(.fractionLength(0)))
             } maximumValueLabel: {

@@ -1,11 +1,10 @@
 import SwiftUI
 import UserNotifications
-import WatchConnectivity
 import WatchKit
 
 @main struct TrioWatchApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var state = WatchState()
+    private let state = WatchState()
 
     init() {
         WatchNotificationHandler.shared.configure()
@@ -24,16 +23,18 @@ import WatchKit
             }
         }
         .backgroundTask(.appRefresh) { _ in
-            await WatchBackgroundRefresh.run()
+            await WatchBackgroundRefresh.refresh(state)
+        }
+        .backgroundTask(.watchConnectivity) {
+            await WatchBackgroundRefresh.settle(state)
         }
     }
 }
 
-enum WatchBackgroundRefresh {
-    static let interval: TimeInterval = 15 * 60
-    private static let activationTimeout: TimeInterval = 5
-    private static let activationPoll: TimeInterval = 0.25
-    private static let processingGrace: TimeInterval = 2
+@MainActor enum WatchBackgroundRefresh {
+    private static let interval: TimeInterval = 15 * 60
+    private static let settleTimeout: TimeInterval = 5
+    private static let settlePoll: TimeInterval = 0.25
 
     static func schedule() {
         WKApplication.shared().scheduleBackgroundRefresh(
@@ -46,18 +47,21 @@ enum WatchBackgroundRefresh {
         }
     }
 
-    static func run() async {
-        let state = WatchState.current ?? WatchState()
-        await waitForActivation()
-        state.ingestReceivedApplicationContext()
-        try? await Task.sleep(for: .seconds(processingGrace))
+    static func refresh(_ state: WatchState) async {
         schedule()
+        await settle(state)
+        state.ingestReceivedApplicationContext()
+        await settle(state)
     }
 
-    private static func waitForActivation() async {
-        let deadline = Date(timeIntervalSinceNow: activationTimeout)
-        while WCSession.default.activationState != .activated, Date() < deadline {
-            try? await Task.sleep(for: .seconds(activationPoll))
-        }
+    static func settle(_ state: WatchState) async {
+        let deadline = Date(timeIntervalSinceNow: settleTimeout)
+        repeat {
+            do {
+                try await Task.sleep(for: .seconds(settlePoll))
+            } catch {
+                return
+            }
+        } while state.isAwaitingDelivery && Date() < deadline
     }
 }
