@@ -22,7 +22,7 @@ import WatchKit
                 WatchBackgroundRefresh.schedule()
             }
         }
-        .backgroundTask(.appRefresh) {
+        .backgroundTask(.appRefresh) { _ in
             await WatchBackgroundRefresh.run()
         }
     }
