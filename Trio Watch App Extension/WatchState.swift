@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import WatchConnectivity
+import WidgetKit
 
 /// WatchState manages the communication between the Watch app and the iPhone app using WatchConnectivity.
 /// It handles glucose data synchronization and sending treatment requests (bolus, carbs) to the phone.
@@ -36,6 +37,14 @@ import WatchConnectivity
     var proteinAmount: Int = 0
     var bolusAmount: Double = 0.0
     var confirmationProgress: Double = 0.0
+    /// Last time the user opened or changed a carbs/bolus entry; nil when no entry is in progress
+    @ObservationIgnored private(set) var entryEditedAt: Date?
+    /// An entry left alone for longer than this is cleared and never sent
+    static let entryLifetime: TimeInterval = 2 * 60
+    static let entryExpiredMessage = String(
+        localized: "Entry expired after 2 minutes. Nothing was sent. Please enter it again.",
+        comment: "Watch message when a carbs or bolus entry was too old to send"
+    )
 
     // Safety limits
     var maxBolus: Decimal = 10
@@ -46,6 +55,15 @@ import WatchConnectivity
     // Pump specific dosing increment
     var bolusIncrement: Decimal = 0.05
     var confirmBolusFaster: Bool = false
+
+    var complicationCornerValue: WatchComplicationValue = WatchComplicationDefaults.cornerValue
+    var complicationSecondaryValue: WatchComplicationValue = WatchComplicationDefaults.secondaryValue
+    var complicationStaleMinutes: Int = WatchComplicationDefaults.staleMinutes
+    var complicationRingStops: [ComplicationRingStop] = []
+    var glucoseUnits: String = ComplicationState.defaultUnits
+    var lastLoopDate: Date?
+    var lowGlucoseLimit: Double?
+    var highGlucoseLimit: Double?
 
     // Forecast options
     var showForecast: Bool = false
@@ -61,6 +79,22 @@ import WatchConnectivity
     var acknowledgementStatus: AcknowledgementStatus = .pending
     var acknowledgmentMessage: String = ""
     var shouldNavigateToRoot: Bool = true
+    @ObservationIgnored private var acknowledgmentTimeoutWorkItem: DispatchWorkItem?
+
+    /// Long enough for a pump to accept a bolus, short enough that the user isn't left guessing
+    static let acknowledgmentTimeout: TimeInterval = 15
+    static let noAnswerMessage = String(
+        localized: "No answer from iPhone. Check Trio on your iPhone before trying again.",
+        comment: "Watch message when the phone did not confirm a request"
+    )
+    static let phoneUnreachableMessage = String(
+        localized: "iPhone not reachable. Nothing was sent.",
+        comment: "Watch message when a request could not be sent to the phone"
+    )
+    static let invalidBolusAmountMessage = String(
+        localized: "Error! Bolus amount must be greater than 0 U.",
+        comment: "Error message when a bolus of zero or less is requested"
+    )
 
     // Bolus calculation progress
     var showBolusCalculationProgress: Bool = false
@@ -72,17 +106,28 @@ import WatchConnectivity
     var recommendedBolus: Decimal = 0
 
     /// Snapshots older than this are dropped at the top of the WC delegate
-    /// methods. Single source of truth for both `didReceiveMessage` and
-    /// `didReceiveUserInfo`.
+    /// methods. Single source of truth for `didReceiveMessage`,
+    /// `didReceiveUserInfo` and `didReceiveApplicationContext`.
     private static let maxAcceptableMessageAgeInMinutes: TimeInterval = 15 * 60
 
     // MARK: - Debouncing and batch processing helpers
 
     /// Temporary storage for new data arriving via WatchConnectivity.
     private var pendingData: [String: Any] = [:]
+    private var lastSavedComplicationState: ComplicationState?
+    private static let maxComplicationHistoryPoints = 40.0
 
     /// Work item to schedule finalizing the pending data.
     private var finalizeWorkItem: DispatchWorkItem?
+    private let complicationReloader = ComplicationReloader(
+        fetchInstalledKinds: { completion in
+            WidgetCenter.shared.getCurrentConfigurations { result in
+                let installedKinds = (try? result.get())?.map(\.kind) ?? []
+                DispatchQueue.main.async { completion(installedKinds) }
+            }
+        },
+        reloadTimelines: { WidgetCenter.shared.reloadTimelines(ofKind: $0) }
+    )
 
     /// A flag to tell the UI we’re still updating.
     var showSyncingAnimation: Bool = false
@@ -92,6 +137,17 @@ import WatchConnectivity
     override init() {
         super.init()
         setupSession()
+    }
+
+    func ingestReceivedApplicationContext() {
+        guard let context = session?.receivedApplicationContext, !context.isEmpty else { return }
+        handleIncomingWatchStatePayload(context)
+    }
+
+    var isAwaitingDelivery: Bool {
+        guard let session else { return false }
+        return session.activationState != .activated || session.hasContentPending || !pendingData.isEmpty ||
+            complicationReloader.isReloading
     }
 
     /// Configures the WatchConnectivity session if supported on the device
@@ -107,9 +163,72 @@ import WatchConnectivity
         }
     }
 
+    // MARK: - Entry lifetime
+
+    /// Starts or restarts the entry's clock. Call when an input screen appears and on every amount change.
+    func markEntryEdited(at now: Date = Date()) {
+        entryEditedAt = now
+    }
+
+    /// True only for an entry changed within `entryLifetime`; an entry with no recorded edit is never fresh
+    func isEntryFresh(at now: Date = Date()) -> Bool {
+        guard let entryEditedAt else { return false }
+        return now.timeIntervalSince(entryEditedAt) <= Self.entryLifetime
+    }
+
+    /// Ends the entry: clears amounts, the recommendation and the confirmation progress
+    func clearEntry() {
+        bolusAmount = 0
+        carbsAmount = 0
+        fatAmount = 0
+        proteinAmount = 0
+        recommendedBolus = 0
+        confirmationProgress = 0
+        entryEditedAt = nil
+    }
+
+    /// Clears an entry older than `entryLifetime`. Returns true when it did, so the caller can
+    /// leave the input screens.
+    @discardableResult func expireStaleEntry(at now: Date = Date()) -> Bool {
+        guard entryEditedAt != nil, !isEntryFresh(at: now) else { return false }
+        WatchLogger.shared.info(.treatments, "Entry older than \(Int(Self.entryLifetime / 60)) min cleared")
+        clearEntry()
+        return true
+    }
+
     // MARK: – Handle Acknowledgement Messages FROM Phone
 
+    /// Shows "Processing…" and starts the clock for the phone's answer
+    func beginAwaitingAcknowledgment(timeout: TimeInterval = WatchState.acknowledgmentTimeout) {
+        acknowledgmentTimeoutWorkItem?.cancel()
+        acknowledgementStatus = .pending
+        showCommsAnimation = true
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.handleMissingAcknowledgment()
+        }
+        acknowledgmentTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
+    }
+
+    /// No answer arrived in time, or sending reported an error. Sending can report an error and
+    /// still deliver the request, so this tells the user to check the phone rather than claiming
+    /// the request failed.
+    func handleMissingAcknowledgment() {
+        guard showCommsAnimation else { return }
+        WatchLogger.shared.warning(.treatments, "No answer from the phone for the last request")
+        handleAcknowledgment(success: false, message: Self.noAnswerMessage)
+    }
+
+    /// The request was refused on the watch and never sent
+    func handleRequestNotSent(_ message: String) {
+        handleAcknowledgment(success: false, message: message)
+    }
+
     func handleAcknowledgment(success: Bool, message: String, isFinal: Bool = true) {
+        acknowledgmentTimeoutWorkItem?.cancel()
+        acknowledgmentTimeoutWorkItem = nil
+
         if success {
             acknowledgementStatus = .success
             acknowledgmentMessage = message
@@ -152,6 +271,8 @@ import WatchConnectivity
 
             if activationState == .activated {
                 WatchLogger.shared.info(.connectivity, "Session activated, phone reachable: \(session.isReachable)")
+
+                WatchBackgroundRefresh.schedule()
 
                 self.forceConditionalWatchStateUpdate()
 
@@ -203,15 +324,25 @@ import WatchConnectivity
         WatchLogger.shared.transferFinished(fileTransfer, error: error)
     }
 
-    /// Shared path for watch-state payloads from either delegate method.
-    /// Enforces the freshness contract in one place so the two delivery paths
-    /// can't drift.
+    func session(_: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        handleIncomingWatchStatePayload(applicationContext)
+    }
+
+    /// Shared path for watch-state payloads from every delivery route.
+    /// Enforces the freshness contract in one place on the main queue so the
+    /// routes can't drift or interleave.
     private func handleIncomingWatchStatePayload(_ dictionary: [String: Any]) {
+        DispatchQueue.main.async {
+            self.applyIncomingWatchStatePayload(dictionary)
+        }
+    }
+
+    private func applyIncomingWatchStatePayload(_ dictionary: [String: Any]) {
         guard let payload = dictionary[WatchMessageKeys.watchState] as? [String: Any],
               let timestamp = payload[WatchMessageKeys.date] as? TimeInterval
         else {
             WatchLogger.shared.warning(.data, "Watch state payload malformed, skipped")
-            DispatchQueue.main.async { self.showSyncingAnimation = false }
+            showSyncingAnimation = false
             return
         }
         let date = Date(timeIntervalSince1970: timestamp)
@@ -223,7 +354,7 @@ import WatchConnectivity
             if WatchLogger.shared.shouldLog("staleState") {
                 WatchLogger.shared.debug(.data, "Stale watch state from \(date) skipped")
             }
-            DispatchQueue.main.async { self.showSyncingAnimation = false }
+            showSyncingAnimation = false
             return
         }
 
@@ -237,9 +368,7 @@ import WatchConnectivity
         }
 
         WatchStateSnapshot.saveLatestDateToDisk(date)
-        DispatchQueue.main.async {
-            self.scheduleUIUpdate(with: payload)
-        }
+        scheduleUIUpdate(with: payload)
     }
 
     func session(_: WCSession, didFinish _: WCSessionUserInfoTransfer, error: (any Error)?) {
@@ -251,21 +380,22 @@ import WatchConnectivity
     /// Called when the reachability status of the paired iPhone changes
     /// Updates the local reachability status
     func sessionReachabilityDidChange(_ session: WCSession) {
+        let isReachable = session.isReachable
         DispatchQueue.main.async {
-            if WatchLogger.shared.shouldLog("reachability", state: "\(session.isReachable)") {
-                WatchLogger.shared.debug(.connectivity, "Phone reachable: \(session.isReachable)")
-            }
+            self.handleReachabilityChange(isReachable: isReachable)
+        }
+    }
 
-            if session.isReachable {
-                self.forceConditionalWatchStateUpdate()
+    /// Reachability flips on every wrist raise, so this must leave entries in progress alone:
+    /// clearing `bolusAmount` here turned a confirmed bolus into a 0 U request.
+    /// The main view resets the entry fields when it appears.
+    func handleReachabilityChange(isReachable: Bool) {
+        if WatchLogger.shared.shouldLog("reachability", state: "\(isReachable)") {
+            WatchLogger.shared.debug(.connectivity, "Phone reachable: \(isReachable)")
+        }
 
-                // reset input amounts
-                self.bolusAmount = 0
-                self.carbsAmount = 0
-
-                // reset auth progress
-                self.confirmationProgress = 0
-            }
+        if isReachable {
+            forceConditionalWatchStateUpdate()
         }
     }
 
@@ -509,6 +639,38 @@ import WatchConnectivity
             }
         }
 
+        if let raw = message[WatchMessageKeys.complicationCornerValue] as? String {
+            complicationCornerValue = WatchComplicationValue(rawValue: raw) ?? WatchComplicationDefaults.cornerValue
+        }
+
+        if let raw = message[WatchMessageKeys.complicationSecondaryValue] as? String {
+            complicationSecondaryValue = WatchComplicationValue(rawValue: raw) ?? WatchComplicationDefaults.secondaryValue
+        }
+
+        if let minutes = (message[WatchMessageKeys.complicationStaleMinutes] as? NSNumber)?.intValue {
+            complicationStaleMinutes = WatchComplicationDefaults.clampedStaleMinutes(minutes)
+        }
+
+        if let units = message[WatchMessageKeys.units] as? String {
+            glucoseUnits = units
+        }
+
+        if let stops = message[WatchMessageKeys.complicationRingStops] as? [[String: Any]] {
+            complicationRingStops = stops.compactMap(ComplicationRingStop.init(payload:))
+        }
+
+        if let loopTimestamp = (message[WatchMessageKeys.lastLoopDate] as? NSNumber)?.doubleValue {
+            lastLoopDate = Date(timeIntervalSince1970: loopTimestamp)
+        }
+
+        if let low = (message[WatchMessageKeys.lowGlucoseLimit] as? NSNumber)?.doubleValue {
+            lowGlucoseLimit = low
+        }
+
+        if let high = (message[WatchMessageKeys.highGlucoseLimit] as? NSNumber)?.doubleValue {
+            highGlucoseLimit = high
+        }
+
         if let showForecast = message[WatchMessageKeys.showForecastWatch] as? Bool {
             self.showForecast = showForecast
         }
@@ -529,5 +691,62 @@ import WatchConnectivity
             forecastConeMax = forecastPayload[WatchMessageKeys.forecastConeMax] as? [Double] ?? []
             forecastLines = forecastPayload[WatchMessageKeys.forecastLines] as? [String: [Double]] ?? [:]
         }
+
+        saveComplicationSnapshot()
+    }
+
+    private func saveComplicationSnapshot() {
+        guard let latestReading = glucoseValues.last else { return }
+        let snapshot = complicationSnapshot(readingDate: latestReading.date, glucoseValue: latestReading.glucose)
+        guard snapshot != lastSavedComplicationState else { return }
+        do {
+            try ComplicationStore.save(snapshot)
+            lastSavedComplicationState = snapshot
+            reloadInstalledComplications()
+            let readingAge = Int(Date().timeIntervalSince(latestReading.date) / 60)
+            WatchLogger.shared.info(.data, "Complication snapshot saved, reading \(readingAge) min old")
+        } catch {
+            WatchLogger.shared.warning(.data, "Complication snapshot not saved", error: error)
+        }
+    }
+
+    private func complicationSnapshot(readingDate: Date, glucoseValue: Double) -> ComplicationState {
+        ComplicationState(
+            date: readingDate,
+            glucose: currentGlucose,
+            glucoseColorHex: currentGlucoseColorString,
+            trend: trend ?? "",
+            delta: ComplicationState.presentOrMissing(delta),
+            iob: ComplicationState.presentOrMissing(iob),
+            cob: ComplicationState.presentOrMissing(cob),
+            lastLoopTime: ComplicationState.presentOrMissing(lastLoopTime),
+            cornerValue: complicationCornerValue,
+            secondaryValue: complicationSecondaryValue,
+            staleMinutes: complicationStaleMinutes,
+            units: glucoseUnits,
+            glucoseValue: glucoseValue,
+            history: complicationHistory(until: readingDate),
+            loopDate: lastLoopDate,
+            limits: complicationLimits,
+            ringStops: complicationRingStops.isEmpty ? nil : complicationRingStops
+        )
+    }
+
+    private var complicationLimits: ClosedRange<Double>? {
+        guard let low = lowGlucoseLimit, let high = highGlucoseLimit, low < high else { return nil }
+        return low ... high
+    }
+
+    private func reloadInstalledComplications() {
+        complicationReloader.reload(Set(ComplicationKind.allCases.map(\.widgetKind)))
+    }
+
+    private func complicationHistory(until end: Date) -> [ComplicationPoint] {
+        let from = end.addingTimeInterval(-ComplicationState.chartWindow)
+        let recent = glucoseValues.filter { $0.date >= from }
+        let step = max(1, Int((Double(recent.count) / Self.maxComplicationHistoryPoints).rounded(.up)))
+        return recent.enumerated()
+            .filter { $0.offset % step == 0 || $0.offset == recent.count - 1 }
+            .map { ComplicationPoint(timestamp: $0.element.date.timeIntervalSince1970, glucose: $0.element.glucose) }
     }
 }
